@@ -20,13 +20,16 @@ const howItWorks = {
     '• Your progress, answers, and scores are saved privately on this device — close the tab and pick up exactly where you left off.',
 };
 const guide = { tagline: book.guide?.tagline, sections: [howItWorks, ...(book.guide?.sections || [])] };
+const chapterNums = book.chapters.map((c) => c.chapter);
+const guideSectionCount = guide.sections.length;
+const journeyTotal = (book.totalChapters || book.chapters.length) + 1; // +1 = reading guide as step zero
 ---
 <Base title={`${book.title} — A Chapter Comprehension Companion`}>
   <div class="topbar">
     <div class="row">
       <a class="brand" href="/" title="Back to the shelf">‹ {book.title}</a>
       <div class="ptrack"><div class="pfill" id="pfill"></div></div>
-      <span class="pcount" id="pcount">0 / {book.totalChapters || book.chapters.length}</span>
+      <span class="pcount" id="pcount">0 / {journeyTotal}</span>
     </div>
   </div>
 
@@ -35,10 +38,23 @@ const guide = { tagline: book.guide?.tagline, sections: [howItWorks, ...(book.gu
       <p class="kicker">A Comprehension Companion</p>
       <h1 class="title">{book.title}</h1>
       <p class="byline">{book.author} — {book.totalChapters || book.chapters.length} chapters, {book.totalChapters || book.chapters.length} reckonings</p>
-      <div class="rule"><span class="timshel">Read closely. Earn the questions.</span></div>
     </header>
 
-    <ReadingGuide guide={guide} title={book.title} />
+    <button class="upnext" id="upnext" type="button">
+      <span class="un-body">
+        <span class="un-kicker" data-un-kicker>Start here</span>
+        <span class="un-title" data-un-title>The Reading Guide</span>
+        <span class="un-sub" data-un-sub>Before you read — how to get the most from this book</span>
+      </span>
+      <span class="un-go" data-un-go>Go →</span>
+    </button>
+
+    <div class="qdivider" id="quizzes"><span>The Chapter Quizzes</span></div>
+
+    <section>
+      <div class="part"><span class="pn">Before You Read</span><span class="pl"></span></div>
+      <ReadingGuide guide={guide} title={book.title} slug={book.slug} />
+    </section>
 
     <QuizApp book={book} />
 
@@ -49,6 +65,73 @@ const guide = { tagline: book.guide?.tagline, sections: [howItWorks, ...(book.gu
     </footer>
   </div>
 </Base>
+
+<script define:vars={{ slug: book.slug, chapterNums, guideTotal: guideSectionCount }}>
+  // Single source of truth for the combined journey: reading guide (step zero) + all
+  // chapter quizzes. Reads both localStorage stores, drives the top progress bar, and
+  // points the "Up Next" card at the reader's current step.
+  const qKey = `book-study:${slug}:v1`;
+  const gKey = `book-study:${slug}:guide:v1`;
+  const read = (k) => { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch { return {}; } };
+
+  const pfill = document.getElementById('pfill');
+  const pcount = document.getElementById('pcount');
+  const card = document.getElementById('upnext');
+  const kicker = card.querySelector('[data-un-kicker]');
+  const title = card.querySelector('[data-un-title]');
+  const sub = card.querySelector('[data-un-sub]');
+  const go = card.querySelector('[data-un-go]');
+
+  function compute() {
+    const g = read(gKey).done || {};
+    const guideDone = Object.values(g).filter(Boolean).length >= guideTotal && guideTotal > 0;
+    const q = read(qKey);
+    const checked = chapterNums.filter((n) => q[n] && q[n].checked).length;
+    const total = chapterNums.length + 1;          // +1 = the reading guide
+    const done = (guideDone ? 1 : 0) + checked;
+    let next = null;
+    if (!guideDone) {
+      next = { kicker: 'Start here', title: 'The Reading Guide', sub: 'Before you read — how to get the most from this book', sel: '#reading-guide' };
+    } else {
+      const nc = chapterNums.find((n) => !(q[n] && q[n].checked));
+      if (nc != null) next = { kicker: 'Up next', title: `Chapter ${nc}`, sub: 'Read the chapter, then take its quiz', sel: `#ch-${nc}` };
+    }
+    return { done, total, next };
+  }
+
+  function apply() {
+    const { done, total, next } = compute();
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    if (pfill) pfill.style.width = pct + '%';
+    if (pcount) pcount.textContent = `${done} / ${total}`;
+    if (next) {
+      card.classList.remove('done');
+      card.dataset.sel = next.sel;
+      kicker.textContent = next.kicker;
+      title.textContent = next.title;
+      sub.textContent = next.sub;
+      go.style.display = '';
+    } else {
+      card.classList.add('done');
+      delete card.dataset.sel;
+      kicker.textContent = 'Complete';
+      title.textContent = 'You’ve finished — every chapter done';
+      sub.textContent = 'Timshel. Revisit any chapter below anytime.';
+      go.style.display = 'none';
+    }
+  }
+
+  card.addEventListener('click', () => {
+    const sel = card.dataset.sel; if (!sel) return;
+    const t = document.querySelector(sel);
+    if (!t) return;
+    if (t.tagName === 'DETAILS') t.open = true;
+    t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  window.addEventListener('bookstudy:progress', apply);
+  apply();
+</script>
 
 <style>
   .topbar{position:sticky; top:0; z-index:20; backdrop-filter:blur(8px);
@@ -63,8 +146,29 @@ const guide = { tagline: book.guide?.tagline, sections: [howItWorks, ...(book.gu
   .hero{padding:50px 0 8px; text-align:center}
   .title{font-family:var(--display); font-weight:600; font-optical-sizing:auto; font-size:clamp(44px,12vw,80px); line-height:.94; margin:0; letter-spacing:-.01em}
   .byline{font-style:italic; color:var(--ink-soft); margin:14px 0 0; font-size:17px}
-  .rule{display:flex; align-items:center; gap:14px; margin:22px auto 0; max-width:360px; color:var(--gold)}
-  .rule::before,.rule::after{content:""; height:1px; flex:1; background:linear-gradient(90deg,transparent,var(--line),transparent)}
+
+  /* Up Next — dynamic pointer to the reader's current step */
+  .upnext{display:flex; align-items:center; gap:16px; width:100%; text-align:left; cursor:pointer;
+    margin:30px 0 0; padding:16px 18px; border-radius:14px; border:1px solid var(--gold);
+    background:linear-gradient(180deg,#fbf3df,#f5e8cf); box-shadow:var(--shadow);
+    transition:transform .12s, box-shadow .2s; -webkit-tap-highlight-color:transparent}
+  .upnext:hover{box-shadow:0 1px 0 #fff8 inset, 0 18px 40px -24px #2b262099}
+  .upnext:active{transform:translateY(1px)}
+  .un-body{flex:1; min-width:0; display:flex; flex-direction:column; gap:3px}
+  .un-kicker{font-family:var(--display); font-weight:600; font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--rust)}
+  .un-title{font-family:var(--display); font-weight:600; font-size:19px; color:var(--ink); line-height:1.1}
+  .un-sub{font-size:13px; color:var(--ink-soft)}
+  .un-go{font-family:var(--display); font-weight:600; color:var(--olive-deep); white-space:nowrap; font-size:15px}
+  .upnext.done{border-color:var(--olive); background:linear-gradient(180deg,#eef1e3,#e4ecd4)}
+  .upnext.done .un-kicker{color:var(--olive-deep)}
+
+  /* Divider + part header (shared look with the chapter parts inside QuizApp) */
+  .qdivider{display:flex; align-items:center; gap:16px; margin:46px 0 6px; color:var(--rust)}
+  .qdivider::before,.qdivider::after{content:""; height:1px; flex:1; background:var(--line)}
+  .qdivider span{font-family:var(--display); font-weight:600; text-transform:uppercase; letter-spacing:.22em; font-size:13px}
+  .part{margin:34px 0 6px; display:flex; align-items:baseline; gap:14px}
+  .pn{font-family:var(--display); font-weight:600; font-size:13px; letter-spacing:.32em; text-transform:uppercase; color:var(--rust)}
+  .pl{flex:1; height:1px; background:var(--line)}
 
   .foot{text-align:center; margin-top:60px; color:var(--ink-faint); font-size:13px; font-style:italic}
   .foot .big{font-size:20px; display:block; color:var(--ink-soft); margin-bottom:6px}

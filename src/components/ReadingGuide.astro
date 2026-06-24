@@ -1,5 +1,5 @@
 ---
-const { guide, title } = Astro.props;
+const { guide, title, slug } = Astro.props;
 
 // Turn a plain-text body (paragraphs split by \n\n, bullet lines starting "• ")
 // into structured blocks for clean rendering.
@@ -14,12 +14,12 @@ function blocks(body) {
 }
 const sections = (guide?.sections || []).map((s) => ({ ...s, blocks: blocks(s.body) }));
 ---
-<details class="guideblock">
+<details class="guideblock" id="reading-guide" data-guide>
   <summary>
     <span class="gicon">❦</span>
     <span class="gmeta">
       <span class="gttl">Reading Guide</span>
-      <span class="gsub">How to read {title} — {sections.length} short sections, plus how this page works</span>
+      <span class="gsub">How to read {title} — {sections.length} short sections <span class="gcount" data-guide-count></span></span>
     </span>
     <span class="gchev">▶</span>
   </summary>
@@ -28,10 +28,12 @@ const sections = (guide?.sections || []).map((s) => ({ ...s, blocks: blocks(s.bo
     {guide?.tagline && <p class="gtag">{guide.tagline}</p>}
     <div class="gsections">
       {sections.map((s, i) => (
-        <details class="gsec">
+        <details class="gsec" data-gi={i}>
           <summary>
             <span class="gn">{String(i + 1).padStart(2, '0')}</span>
             <span class="gt">{s.title}</span>
+            <span class="gnext" data-next-badge>Up next</span>
+            <span class="gbadge" data-done-badge>✓ read</span>
             <span class="gchev2">▾</span>
           </summary>
           <div class="gbody">
@@ -40,12 +42,66 @@ const sections = (guide?.sections || []).map((s) => ({ ...s, blocks: blocks(s.bo
                 ? <ul>{b.items.map((it) => <li>{it}</li>)}</ul>
                 : <p>{b.text}</p>
             ))}
+            <button class="markread" data-markread type="button">Mark as read &amp; go to next</button>
           </div>
         </details>
       ))}
     </div>
   </div>
 </details>
+
+<script define:vars={{ slug }}>
+  const KEY = `book-study:${slug}:guide:v1`;
+  let st = load();
+  function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } }
+  function save() { localStorage.setItem(KEY, JSON.stringify(st)); }
+  st.done = st.done || {};   // { sectionIndex: true }
+
+  const block = document.querySelector('[data-guide]');
+  const secs = [...document.querySelectorAll('.gsec')];
+
+  // Persist the outer block's open/closed state.
+  if (st.open) block.open = true;
+  block.addEventListener('toggle', () => { st.open = block.open; save(); });
+
+  const isDone = (i) => !!st.done[i];
+  const nextIndex = () => { for (const s of secs) if (!isDone(s.dataset.gi)) return Number(s.dataset.gi); return -1; };
+
+  // Feature only the next unread section (open + badge); collapse the rest. This is
+  // what keeps the guide tidy — you always see exactly the one section you're up to,
+  // not seven competing for attention. Marking it read advances the feature.
+  function render({ focusNext = false } = {}) {
+    const nxt = nextIndex();
+    secs.forEach((sec) => {
+      const i = sec.dataset.gi;
+      const done = isDone(i);
+      sec.classList.toggle('done', done);
+      sec.classList.toggle('next', Number(i) === nxt);
+      sec.querySelector('[data-markread]').textContent = done ? '✓ Read — mark unread' : 'Mark as read & go to next';
+      // Default open state: only the featured "next" section is expanded.
+      sec.open = Number(i) === nxt;
+    });
+    const doneCount = secs.filter((s) => isDone(s.dataset.gi)).length;
+    const el = document.querySelector('[data-guide-count]');
+    if (el) el.textContent = doneCount ? `· ${doneCount}/${secs.length} read` : '';
+    if (focusNext && nxt >= 0 && block.open) {
+      secs.find((s) => Number(s.dataset.gi) === nxt)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+
+  secs.forEach((sec) => {
+    sec.querySelector('[data-markread]').addEventListener('click', (e) => {
+      e.preventDefault();
+      const i = sec.dataset.gi;
+      st.done[i] = !st.done[i];
+      save();
+      render({ focusNext: st.done[i] });   // advancing forward → scroll to the new "next"
+      window.dispatchEvent(new CustomEvent('bookstudy:progress'));
+    });
+  });
+
+  render();
+</script>
 
 <style>
   /* Outer block — matches the chapter-card look so it reads as "another block" */
@@ -57,23 +113,37 @@ const sections = (guide?.sections || []).map((s) => ({ ...s, blocks: blocks(s.bo
   .gmeta{flex:1; min-width:0}
   .gttl{font-family:var(--display); font-weight:600; font-size:18px; display:block}
   .gsub{font-size:12.5px; color:var(--ink-faint); margin-top:2px; display:block}
+  .gcount{color:var(--olive-deep); font-weight:600}
   .gchev{color:var(--ink-faint); transition:transform .25s; font-size:13px}
   .guideblock[open] > summary .gchev{transform:rotate(90deg)}
 
   .gbodywrap{padding:4px 18px 18px; border-top:1px solid var(--line)}
   .gtag{font-style:italic; color:var(--ink-soft); font-size:15.5px; margin:14px 2px 4px}
 
-  /* Inner sections — lighter, all collapsed by default */
-  .gsec{border-top:1px dashed var(--line)}
-  .gsec summary{list-style:none; cursor:pointer; display:flex; align-items:center; gap:12px; padding:14px 2px}
+  /* Inner sections — lighter, collapsed unless featured as "next" */
+  .gsec{border-top:1px dashed var(--line); border-left:3px solid transparent; transition:border-color .2s, background .2s}
+  .gsec.next{border-left-color:var(--gold); background:#faf4e4}
+  .gsec summary{list-style:none; cursor:pointer; display:flex; align-items:center; gap:12px; padding:14px 8px 14px 11px}
   .gsec summary::-webkit-details-marker{display:none}
-  .gn{font-family:var(--display); font-weight:600; color:var(--rust); font-size:13px; font-variant-numeric:tabular-nums}
+  .gn{font-family:var(--display); font-weight:600; color:var(--rust); font-size:13px; font-variant-numeric:tabular-nums; transition:color .2s}
   .gt{font-family:var(--display); font-weight:600; font-size:16px; flex:1}
+  .gnext{font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:#fff; background:var(--gold);
+    border-radius:20px; padding:3px 9px; display:none}
+  .gsec.next:not(.done) .gnext{display:inline-block}
+  .gbadge{font-size:11px; font-weight:600; color:var(--olive-deep); background:#e3e8d4; border-radius:20px; padding:3px 9px; display:none}
+  .gsec.done .gbadge{display:inline-block}
+  .gsec.done .gn{color:var(--olive-deep)}
+  .gsec.done .gt{color:var(--ink-faint)}
   .gchev2{color:var(--ink-faint); transition:transform .25s; font-size:12px}
   .gsec[open] .gchev2{transform:rotate(180deg)}
-  .gbody{padding:0 2px 16px}
+  .gbody{padding:0 8px 16px 11px}
   .gbody p{margin:10px 0 0; color:var(--ink-soft); font-size:15px}
   .gbody ul{margin:10px 0 0; padding-left:20px}
   .gbody li{margin:7px 0; color:var(--ink-soft); font-size:14.5px}
   .gbody li::marker{color:var(--gold)}
+  .markread{margin-top:14px; font-family:var(--display); font-weight:600; font-size:13px; cursor:pointer;
+    color:var(--olive-deep); background:#eef1e3; border:1px solid #c4cba8; border-radius:9px; padding:7px 14px;
+    -webkit-tap-highlight-color:transparent; transition:background .15s}
+  .markread:active{transform:translateY(1px)}
+  .gsec.done .markread{color:var(--ink-faint); background:none; border-color:var(--line)}
 </style>

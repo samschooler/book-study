@@ -10,8 +10,6 @@ const parts = (book.parts || []).map((p) => ({
 for (const p of parts) for (let n = p.from; n <= p.to; n++) if (byNum[n]) p.list.push(byNum[n]);
 const ready = chapters.length > 0;
 ---
-<div class="qdivider" id="quizzes"><span>The Chapter Quizzes</span></div>
-
 {!ready && (
   <div class="pending">
     <div class="lk">✶</div>
@@ -27,7 +25,7 @@ const ready = chapters.length > 0;
       const mcqN = c.questions.filter((q) => q.type === 'mcq').length;
       const shortN = c.questions.filter((q) => q.type === 'short').length;
       return (
-        <details class="ch" data-ch={c.chapter}>
+        <details class="ch" id={`ch-${c.chapter}`} data-ch={c.chapter}>
           <summary>
             <span class="chno">{String(c.chapter).padStart(2, '0')}</span>
             <span class="chmeta">
@@ -177,12 +175,10 @@ const ready = chapters.length > 0;
     if (st.checked) grade(det);
   });
 
+  // The combined progress bar (reading guide + chapters) is owned by the page-level
+  // script. We just announce that quiz state changed so it can recompute.
   function updateProgress() {
-    let done = 0; chapters.forEach((d) => { if (cs(d.dataset.ch).checked) done++; });
-    const pct = total ? Math.round((done / total) * 100) : 0;
-    const f = document.getElementById('pfill'), c = document.getElementById('pcount');
-    if (f) f.style.width = pct + '%';
-    if (c) c.textContent = `${done} / ${total}`;
+    window.dispatchEvent(new CustomEvent('bookstudy:progress'));
   }
 
   const reset = document.getElementById('resetAll');
