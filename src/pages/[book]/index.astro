@@ -2,179 +2,248 @@
 import Base from '../../layouts/Base.astro';
 import ReadingGuide from '../../components/ReadingGuide.astro';
 import QuizApp from '../../components/QuizApp.astro';
-import { books, getBook } from '../../lib/books.js';
+import { books } from '../../lib/books.js';
 
 export function getStaticPaths() {
   return books.map((b) => ({ params: { book: b.slug }, props: { book: b } }));
 }
 const { book } = Astro.props;
 
-// "How this page works" lives inside the Reading Guide block as its first section,
-// so the orientation is one tap away instead of permanently on screen.
 const howItWorks = {
   title: 'How this page works',
   body:
     'Read a chapter, then open its quiz and answer before moving on — testing yourself right after reading is one of the most reliable ways to make what you read actually stick.\n\n' +
-    "• Each chapter below stays sealed until you mark it finished, so you can't peek at the questions ahead of time.\n" +
+    "• Each chapter stays sealed until you mark it finished, so you can't peek at the questions ahead of time.\n" +
     '• Six multiple-choice questions are graded instantly; two short-answer questions come with a model answer you check yourself.\n' +
-    '• Your progress, answers, and scores are saved privately on this device — close the tab and pick up exactly where you left off.',
+    '• Your progress, answers, and scores are saved privately on this device — close the tab and pick up exactly where you left off.\n' +
+    '• Tap the progress bar at the top any time to open the full chapter list.',
 };
 const guide = { tagline: book.guide?.tagline, sections: [howItWorks, ...(book.guide?.sections || [])] };
+const sectionTitles = guide.sections.map((s) => s.title);
+const total = book.totalChapters || book.chapters.length;
 const chapterNums = book.chapters.map((c) => c.chapter);
-const guideSectionCount = guide.sections.length;
-const journeyTotal = (book.totalChapters || book.chapters.length) + 1; // +1 = reading guide as step zero
+const journeyTotal = total + 1; // +1 = the reading guide as step zero
 ---
 <Base title={`${book.title} — A Chapter Comprehension Companion`}>
   <div class="topbar">
     <div class="row">
-      <a class="brand" href="/" title="Back to the shelf">‹ {book.title}</a>
-      <div class="ptrack"><div class="pfill" id="pfill"></div></div>
-      <span class="pcount" id="pcount">0 / {journeyTotal}</span>
+      <a class="brand" href="/" title="Back to the shelf">‹ Shelf</a>
+      <button class="progress" id="progressBtn" type="button" title="Open the full chapter list">
+        <span class="ptrack"><span class="pfill" id="pfill"></span></span>
+        <span class="pcount" id="pcount">0 / {journeyTotal}</span>
+        <span class="pchev" aria-hidden="true">▦</span>
+      </button>
     </div>
   </div>
 
   <div class="wrap">
-    <header class="hero">
-      <p class="kicker">A Comprehension Companion</p>
-      <h1 class="title">{book.title}</h1>
-      <p class="byline">{book.author} — {book.totalChapters || book.chapters.length} chapters, {book.totalChapters || book.chapters.length} reckonings</p>
-    </header>
+    <!-- Canvas: the stage you move through (title page → reading-guide sections) -->
+    <section class="stage" id="canvas" aria-live="polite"></section>
 
-    <button class="upnext" id="upnext" type="button">
-      <span class="un-body">
-        <span class="un-kicker" data-un-kicker>Start here</span>
-        <span class="un-title" data-un-title>The Reading Guide</span>
-        <span class="un-sub" data-un-sub>Before you read — how to get the most from this book</span>
-      </span>
-      <span class="un-go" data-un-go>Go →</span>
-    </button>
+    <div class="rg-head">
+      <span class="rg-eyebrow">Reading Guide</span>
+      <span class="rg-hint">Tap a section to read it above ↑</span>
+    </div>
+    <ReadingGuide guide={guide} />
+  </div>
 
-    <div class="qdivider" id="quizzes"><span>The Chapter Quizzes</span></div>
-
-    <section>
-      <div class="part"><span class="pn">Before You Read</span><span class="pl"></span></div>
-      <ReadingGuide guide={guide} title={book.title} slug={book.slug} />
-    </section>
-
-    <QuizApp book={book} />
-
-    <footer class="foot">
-      <span class="timshel big">Timshel.</span>
-      Read a chapter, then earn its questions. Progress is stored locally on your device.
-      <div style="margin-top:16px"><button class="reset" id="resetAll">Reset all progress</button></div>
-    </footer>
+  <!-- Separate chapters screen, opened from the progress bar -->
+  <div class="screen" id="chaptersScreen" hidden aria-hidden="true">
+    <div class="screen-bar">
+      <span class="screen-title">{book.title} — Chapter Quizzes</span>
+      <button class="screen-close" id="chaptersClose" type="button">Done ✕</button>
+    </div>
+    <div class="screen-body">
+      <div class="wrap">
+        <QuizApp book={book} />
+        <footer class="foot">
+          <span class="timshel big">Timshel.</span>
+          Progress is saved privately on this device.
+          <div style="margin-top:14px"><button class="reset" id="resetAll">Reset all progress</button></div>
+        </footer>
+      </div>
+    </div>
   </div>
 </Base>
 
-<script define:vars={{ slug: book.slug, chapterNums, guideTotal: guideSectionCount }}>
-  // Single source of truth for the combined journey: reading guide (step zero) + all
-  // chapter quizzes. Reads both localStorage stores, drives the top progress bar, and
-  // points the "Up Next" card at the reader's current step.
+<script define:vars={{ slug: book.slug, sectionTitles, bookTitle: book.title, author: book.author, total, chapterNums }}>
   const qKey = `book-study:${slug}:v1`;
   const gKey = `book-study:${slug}:guide:v1`;
   const read = (k) => { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch { return {}; } };
 
+  const N = sectionTitles.length;
+  const canvas = document.getElementById('canvas');
   const pfill = document.getElementById('pfill');
   const pcount = document.getElementById('pcount');
-  const card = document.getElementById('upnext');
-  const kicker = card.querySelector('[data-un-kicker]');
-  const title = card.querySelector('[data-un-title]');
-  const sub = card.querySelector('[data-un-sub]');
-  const go = card.querySelector('[data-un-go]');
+  const tracks = [...document.querySelectorAll('[data-tracklist] .track')];
+  const srcs = [...document.querySelectorAll('.rg-src')];
+  const esc = (s) => String(s).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
 
-  function compute() {
-    const g = read(gKey).done || {};
-    const guideDone = Object.values(g).filter(Boolean).length >= guideTotal && guideTotal > 0;
+  let view = 'title'; // 'title' | 0..N-1
+
+  const gdone = () => read(gKey).done || {};
+  const isDone = (i) => !!gdone()[i];
+  const setDone = (i, v) => { const g = read(gKey); g.done = g.done || {}; g.done[i] = v; localStorage.setItem(gKey, JSON.stringify(g)); };
+  const nextUnread = () => { for (let i = 0; i < N; i++) if (!isDone(i)) return i; return -1; };
+  const srcHtml = (i) => (srcs.find((s) => +s.dataset.gi === i)?.innerHTML || '');
+
+  function render() {
+    if (view === 'title') {
+      canvas.innerHTML = `
+        <div class="cv cv-title">
+          <p class="cv-kicker">A Comprehension Companion</p>
+          <h1 class="cv-h1">${esc(bookTitle)}</h1>
+          <p class="cv-by">${esc(author)} — ${total} chapters, ${total} reckonings</p>
+          <button class="cv-btn" data-begin type="button">Begin the reading guide →</button>
+          <p class="cv-or">or <button class="cv-link" data-openchapters type="button">jump straight to the chapters</button></p>
+        </div>`;
+      canvas.querySelector('[data-begin]').onclick = () => go(nextUnread() >= 0 ? nextUnread() : 0);
+      canvas.querySelector('[data-openchapters]').onclick = openChapters;
+    } else {
+      const i = view, done = isDone(i);
+      canvas.innerHTML = `
+        <div class="cv cv-sec">
+          <div class="cv-eyebrowrow">
+            <span class="cv-eyebrow">Reading Guide · ${i + 1} of ${N}</span>
+            <span class="cv-doneflag${done ? ' on' : ''}">✓ read</span>
+          </div>
+          <h2 class="cv-h2">${esc(sectionTitles[i])}</h2>
+          <div class="cv-body">${srcHtml(i)}</div>
+          <div class="cv-actions">
+            <button class="cv-nav" data-prev type="button">${i === 0 ? '‹ Title' : '‹ Prev'}</button>
+            <button class="cv-mark${done ? ' done' : ''}" data-mark type="button">${done ? '✓ Read' : 'Mark as read'}</button>
+            <button class="cv-nav cv-next" data-next type="button">${i < N - 1 ? 'Next ›' : 'To chapters ›'}</button>
+          </div>
+        </div>`;
+      canvas.querySelector('[data-prev]').onclick = () => go(i === 0 ? 'title' : i - 1);
+      canvas.querySelector('[data-next]').onclick = () => (i < N - 1 ? go(i + 1) : openChapters());
+      canvas.querySelector('[data-mark]').onclick = () => { setDone(i, !isDone(i)); progress(); render(); canvas.scrollIntoView({ block: 'nearest' }); };
+    }
+    paintTracks();
+  }
+
+  function go(v, scroll = true) {
+    view = v; render();
+    if (scroll) canvas.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function paintTracks() {
+    const nu = nextUnread();
+    tracks.forEach((t) => {
+      const i = +t.dataset.gi;
+      t.classList.toggle('done', isDone(i));
+      t.classList.toggle('next', i === nu);
+      t.classList.toggle('active', view === i);
+    });
+  }
+
+  function progress() {
+    const g = gdone();
+    const guideDone = Object.values(g).filter(Boolean).length >= N && N > 0;
     const q = read(qKey);
     const checked = chapterNums.filter((n) => q[n] && q[n].checked).length;
-    const total = chapterNums.length + 1;          // +1 = the reading guide
+    const t = chapterNums.length + 1;
     const done = (guideDone ? 1 : 0) + checked;
-    let next = null;
-    if (!guideDone) {
-      next = { kicker: 'Start here', title: 'The Reading Guide', sub: 'Before you read — how to get the most from this book', sel: '#reading-guide' };
-    } else {
-      const nc = chapterNums.find((n) => !(q[n] && q[n].checked));
-      if (nc != null) next = { kicker: 'Up next', title: `Chapter ${nc}`, sub: 'Read the chapter, then take its quiz', sel: `#ch-${nc}` };
-    }
-    return { done, total, next };
+    pfill.style.width = (t ? Math.round((done / t) * 100) : 0) + '%';
+    pcount.textContent = `${done} / ${t}`;
   }
 
-  function apply() {
-    const { done, total, next } = compute();
-    const pct = total ? Math.round((done / total) * 100) : 0;
-    if (pfill) pfill.style.width = pct + '%';
-    if (pcount) pcount.textContent = `${done} / ${total}`;
-    if (next) {
-      card.classList.remove('done');
-      card.dataset.sel = next.sel;
-      kicker.textContent = next.kicker;
-      title.textContent = next.title;
-      sub.textContent = next.sub;
-      go.style.display = '';
-    } else {
-      card.classList.add('done');
-      delete card.dataset.sel;
-      kicker.textContent = 'Complete';
-      title.textContent = 'You’ve finished — every chapter done';
-      sub.textContent = 'Timshel. Revisit any chapter below anytime.';
-      go.style.display = 'none';
-    }
-  }
+  tracks.forEach((t) => (t.onclick = () => go(+t.dataset.gi)));
 
-  card.addEventListener('click', () => {
-    const sel = card.dataset.sel; if (!sel) return;
-    const t = document.querySelector(sel);
-    if (!t) return;
-    if (t.tagName === 'DETAILS') t.open = true;
-    t.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
+  // Chapters screen
+  const screen = document.getElementById('chaptersScreen');
+  function openChapters() { screen.hidden = false; screen.setAttribute('aria-hidden', 'false'); document.body.style.overflow = 'hidden'; screen.scrollTop = 0; }
+  function closeChapters() { screen.hidden = true; screen.setAttribute('aria-hidden', 'true'); document.body.style.overflow = ''; }
+  document.getElementById('progressBtn').onclick = openChapters;
+  document.getElementById('chaptersClose').onclick = closeChapters;
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !screen.hidden) closeChapters(); });
 
-  window.addEventListener('bookstudy:progress', apply);
-  apply();
+  window.addEventListener('bookstudy:progress', () => { progress(); paintTracks(); });
+
+  progress();
+  render();
 </script>
+
+<!-- Canvas content is injected by JS at runtime, so its styles must be global
+     (scoped styles only attach to elements present in the template at build time). -->
+<style is:global>
+  .cv{background:var(--card); border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow); padding:34px 26px}
+  .cv-title{text-align:center; padding:54px 22px 48px}
+  .cv-kicker{text-transform:uppercase; letter-spacing:.4em; font-size:11px; color:var(--rust); margin:0 0 18px; padding-left:.4em}
+  .cv-h1{font-family:var(--display); font-weight:600; font-optical-sizing:auto; font-size:clamp(46px,13vw,84px); line-height:.92; margin:0; letter-spacing:-.01em}
+  .cv-by{font-style:italic; color:var(--ink-soft); font-size:17px; margin:16px 0 30px}
+  .cv-btn{font-family:var(--display); font-weight:600; font-size:16px; cursor:pointer; color:#f6efdd; border:none;
+    background:linear-gradient(180deg,var(--olive),var(--olive-deep)); box-shadow:0 12px 26px -14px var(--olive-deep);
+    padding:14px 26px; border-radius:12px; -webkit-tap-highlight-color:transparent; transition:transform .12s}
+  .cv-btn:active{transform:translateY(1px)}
+  .cv-or{font-size:13.5px; color:var(--ink-faint); margin:18px 0 0}
+  .cv-link{background:none; border:none; color:var(--rust); font-family:var(--serif); font-size:13.5px; cursor:pointer; text-decoration:underline; padding:0}
+
+  .cv-eyebrowrow{display:flex; align-items:center; gap:12px; margin-bottom:6px}
+  .cv-eyebrow{font-family:var(--display); font-weight:600; text-transform:uppercase; letter-spacing:.18em; font-size:11.5px; color:var(--rust)}
+  .cv-doneflag{margin-left:auto; font-size:11px; font-weight:600; color:var(--olive-deep); background:#e3e8d4; border-radius:20px; padding:3px 10px; opacity:0; transition:opacity .2s}
+  .cv-doneflag.on{opacity:1}
+  .cv-h2{font-family:var(--display); font-weight:600; font-size:clamp(26px,6vw,34px); line-height:1.05; margin:0 0 4px; letter-spacing:-.01em}
+  .cv-body{margin-top:8px}
+  .cv-body p{margin:14px 0 0; color:var(--ink-soft); font-size:16px; line-height:1.62}
+  .cv-body ul{margin:14px 0 0; padding-left:20px}
+  .cv-body li{margin:8px 0; color:var(--ink-soft); font-size:15.5px}
+  .cv-body li::marker{color:var(--gold)}
+  .cv-actions{display:flex; align-items:center; gap:10px; margin-top:26px; flex-wrap:wrap}
+  .cv-nav{font-family:var(--display); font-weight:600; font-size:14px; cursor:pointer; color:var(--ink-soft);
+    background:none; border:1px solid var(--line); border-radius:10px; padding:10px 15px; -webkit-tap-highlight-color:transparent}
+  .cv-nav:hover{border-color:var(--olive); color:var(--olive-deep)}
+  .cv-next{margin-left:auto}
+  .cv-mark{font-family:var(--display); font-weight:600; font-size:14px; cursor:pointer; color:#f6efdd; border:none;
+    background:linear-gradient(180deg,var(--rust-soft),var(--rust)); box-shadow:0 10px 22px -13px var(--rust);
+    padding:10px 18px; border-radius:10px; -webkit-tap-highlight-color:transparent; transition:transform .12s}
+  .cv-mark:active{transform:translateY(1px)}
+  .cv-mark.done{background:none; color:var(--olive-deep); border:1px solid #c4cba8; box-shadow:none}
+  @media(max-width:520px){
+    .cv{padding:26px 18px}
+    .cv-title{padding:40px 12px 36px}
+    .cv-next{margin-left:0}
+    .cv-actions{gap:8px}
+  }
+</style>
 
 <style>
   .topbar{position:sticky; top:0; z-index:20; backdrop-filter:blur(8px);
-    background:linear-gradient(#f3ead7ee,#f3ead7cc); border-bottom:1px solid var(--line); padding:10px 18px 9px}
+    background:linear-gradient(#f3ead7ee,#f3ead7cc); border-bottom:1px solid var(--line); padding:9px 16px}
   .topbar .row{display:flex; align-items:center; gap:12px; max-width:760px; margin:0 auto}
-  .brand{font-family:var(--display); font-weight:600; font-size:15px; text-decoration:none; white-space:nowrap; color:var(--ink)}
+  .brand{font-family:var(--display); font-weight:600; font-size:14px; text-decoration:none; white-space:nowrap; color:var(--ink)}
   .brand:hover{color:var(--rust)}
+  .progress{flex:1; display:flex; align-items:center; gap:11px; cursor:pointer; border:none; background:none; padding:6px 2px;
+    -webkit-tap-highlight-color:transparent}
   .ptrack{flex:1; height:8px; border-radius:20px; background:#e4d6b6; overflow:hidden; box-shadow:inset 0 1px 2px #0002}
-  .pfill{height:100%; width:0; border-radius:20px; background:linear-gradient(90deg,var(--olive),var(--gold)); transition:width .6s cubic-bezier(.2,.8,.2,1)}
+  .pfill{display:block; height:100%; width:0; border-radius:20px; background:linear-gradient(90deg,var(--olive),var(--gold)); transition:width .6s cubic-bezier(.2,.8,.2,1)}
   .pcount{font-size:12.5px; color:var(--ink-soft); white-space:nowrap; font-variant-numeric:tabular-nums}
+  .pchev{font-size:14px; color:var(--rust); line-height:1}
+  .progress:hover .pchev{color:var(--olive-deep)}
 
-  .hero{padding:50px 0 8px; text-align:center}
-  .title{font-family:var(--display); font-weight:600; font-optical-sizing:auto; font-size:clamp(44px,12vw,80px); line-height:.94; margin:0; letter-spacing:-.01em}
-  .byline{font-style:italic; color:var(--ink-soft); margin:14px 0 0; font-size:17px}
+  .wrap{padding-top:18px}
+  .stage{margin-top:14px}
 
-  /* Up Next — dynamic pointer to the reader's current step */
-  .upnext{display:flex; align-items:center; gap:16px; width:100%; text-align:left; cursor:pointer;
-    margin:30px 0 0; padding:16px 18px; border-radius:14px; border:1px solid var(--gold);
-    background:linear-gradient(180deg,#fbf3df,#f5e8cf); box-shadow:var(--shadow);
-    transition:transform .12s, box-shadow .2s; -webkit-tap-highlight-color:transparent}
-  .upnext:hover{box-shadow:0 1px 0 #fff8 inset, 0 18px 40px -24px #2b262099}
-  .upnext:active{transform:translateY(1px)}
-  .un-body{flex:1; min-width:0; display:flex; flex-direction:column; gap:3px}
-  .un-kicker{font-family:var(--display); font-weight:600; font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--rust)}
-  .un-title{font-family:var(--display); font-weight:600; font-size:19px; color:var(--ink); line-height:1.1}
-  .un-sub{font-size:13px; color:var(--ink-soft)}
-  .un-go{font-family:var(--display); font-weight:600; color:var(--olive-deep); white-space:nowrap; font-size:15px}
-  .upnext.done{border-color:var(--olive); background:linear-gradient(180deg,#eef1e3,#e4ecd4)}
-  .upnext.done .un-kicker{color:var(--olive-deep)}
+  /* ---- Reading guide header ---- */
+  .rg-head{display:flex; align-items:baseline; gap:12px; margin:40px 0 4px}
+  .rg-eyebrow{font-family:var(--display); font-weight:600; text-transform:uppercase; letter-spacing:.24em; font-size:13px; color:var(--rust)}
+  .rg-hint{font-size:12.5px; color:var(--ink-faint); font-style:italic}
 
-  /* Divider + part header (shared look with the chapter parts inside QuizApp) */
-  .qdivider{display:flex; align-items:center; gap:16px; margin:46px 0 6px; color:var(--rust)}
-  .qdivider::before,.qdivider::after{content:""; height:1px; flex:1; background:var(--line)}
-  .qdivider span{font-family:var(--display); font-weight:600; text-transform:uppercase; letter-spacing:.22em; font-size:13px}
-  .part{margin:34px 0 6px; display:flex; align-items:baseline; gap:14px}
-  .pn{font-family:var(--display); font-weight:600; font-size:13px; letter-spacing:.32em; text-transform:uppercase; color:var(--rust)}
-  .pl{flex:1; height:1px; background:var(--line)}
+  /* ---- Chapters screen ---- */
+  .screen{position:fixed; inset:0; z-index:50; background:var(--paper-2);
+    background:radial-gradient(120% 80% at 50% -10%, #f7efdd 0%, var(--paper) 45%, var(--paper-2) 100%);
+    overflow-y:auto; -webkit-overflow-scrolling:touch}
+  .screen[hidden]{display:none}
+  .screen-bar{position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:12px; justify-content:space-between;
+    padding:12px 18px; background:linear-gradient(#f3ead7f2,#f3ead7d8); backdrop-filter:blur(8px); border-bottom:1px solid var(--line)}
+  .screen-title{font-family:var(--display); font-weight:600; font-size:15px}
+  .screen-close{font-family:var(--display); font-weight:600; font-size:14px; cursor:pointer; color:var(--rust);
+    background:none; border:1px solid var(--line); border-radius:10px; padding:8px 14px; -webkit-tap-highlight-color:transparent}
+  .screen-close:hover{border-color:var(--rust)}
+  .screen-body{padding-bottom:60px}
+  .screen .wrap{max-width:760px; margin:0 auto; padding:0 18px}
 
-  .foot{text-align:center; margin-top:60px; color:var(--ink-faint); font-size:13px; font-style:italic}
+  .foot{text-align:center; margin-top:44px; color:var(--ink-faint); font-size:13px; font-style:italic}
   .foot .big{font-size:20px; display:block; color:var(--ink-soft); margin-bottom:6px}
   .reset{background:none; border:1px solid var(--line); color:var(--ink-faint); border-radius:9px; padding:6px 12px; font-family:var(--serif); font-size:12px; cursor:pointer}
-
-  @media(max-width:520px){
-    .topbar{margin:0; padding:9px 13px}
-  }
 </style>

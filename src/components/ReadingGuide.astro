@@ -1,8 +1,8 @@
 ---
-const { guide, title, slug } = Astro.props;
+const { guide } = Astro.props;
 
 // Turn a plain-text body (paragraphs split by \n\n, bullet lines starting "• ")
-// into structured blocks for clean rendering.
+// into structured blocks.
 function blocks(body) {
   return (body || '').split(/\n\n+/).map((chunk) => {
     const lines = chunk.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -14,127 +14,60 @@ function blocks(body) {
 }
 const sections = (guide?.sections || []).map((s) => ({ ...s, blocks: blocks(s.body) }));
 ---
-<details class="guideblock" id="reading-guide" data-guide>
-  <summary>
-    <span class="gicon">❦</span>
-    <span class="gmeta">
-      <span class="gttl">Reading Guide</span>
-      <span class="gsub">How to read {title} — {sections.length} short sections <span class="gcount" data-guide-count></span></span>
-    </span>
-    <span class="gchev">▶</span>
-  </summary>
-
-  <div class="gbodywrap">
-    {guide?.tagline && <p class="gtag">{guide.tagline}</p>}
-    <div class="gsections">
-      {sections.map((s, i) => (
-        <details class="gsec" data-gi={i}>
-          <summary>
-            <span class="gn">{String(i + 1).padStart(2, '0')}</span>
-            <span class="gt">{s.title}</span>
-            <span class="gnext" data-next-badge>Up next</span>
-            <span class="gbadge" data-done-badge>✓ read</span>
-            <span class="gchev2">▾</span>
-          </summary>
-          <div class="gbody">
-            {s.blocks.map((b) => (
-              b.type === 'list'
-                ? <ul>{b.items.map((it) => <li>{it}</li>)}</ul>
-                : <p>{b.text}</p>
-            ))}
-            <button class="markread" data-markread type="button">Mark as read</button>
-          </div>
-        </details>
-      ))}
-    </div>
+{/* The list is a TRACK SELECTOR only — clicking a row loads that section into the
+    featured canvas above (see the page script). Content is not shown inline here;
+    it lives in the hidden <template>s below and is rendered into the canvas. */}
+<div class="rg" id="reading-guide" data-rg data-rg-total={sections.length}>
+  {guide?.tagline && <p class="rg-tag">{guide.tagline}</p>}
+  <div class="tracklist" data-tracklist>
+    {sections.map((s, i) => (
+      <button class="track" data-gi={i} type="button">
+        <span class="tk-n">{String(i + 1).padStart(2, '0')}</span>
+        <span class="tk-t">{s.title}</span>
+        <span class="tk-badge tk-next">Up next</span>
+        <span class="tk-badge tk-done">✓ read</span>
+        <span class="tk-play">Read ›</span>
+      </button>
+    ))}
   </div>
-</details>
-
-<script define:vars={{ slug }}>
-  const KEY = `book-study:${slug}:guide:v1`;
-  let st = load();
-  function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } }
-  function save() { localStorage.setItem(KEY, JSON.stringify(st)); }
-  st.done = st.done || {};   // { sectionIndex: true } — only completion persists
-
-  const secs = [...document.querySelectorAll('.gsec')];
-
-  // The block and its sections default CLOSED on every load, exactly like the chapter
-  // cards — open/closed state is intentionally not persisted. We only persist which
-  // sections are marked read, and visually FEATURE (highlight + "Up next" badge) the
-  // next unread section so it's easy to find without auto-expanding anything.
-  const isDone = (i) => !!st.done[i];
-  const nextIndex = () => { for (const s of secs) if (!isDone(s.dataset.gi)) return Number(s.dataset.gi); return -1; };
-
-  function render() {
-    const nxt = nextIndex();
-    secs.forEach((sec) => {
-      const i = sec.dataset.gi;
-      const done = isDone(i);
-      sec.classList.toggle('done', done);
-      sec.classList.toggle('next', Number(i) === nxt);
-      sec.querySelector('[data-markread]').textContent = done ? '✓ Read — mark unread' : 'Mark as read';
-    });
-    const doneCount = secs.filter((s) => isDone(s.dataset.gi)).length;
-    const el = document.querySelector('[data-guide-count]');
-    if (el) el.textContent = doneCount ? `· ${doneCount}/${secs.length} read` : '';
-  }
-
-  secs.forEach((sec) => {
-    sec.querySelector('[data-markread]').addEventListener('click', (e) => {
-      e.preventDefault();
-      const i = sec.dataset.gi;
-      st.done[i] = !st.done[i];
-      save();
-      render();
-      window.dispatchEvent(new CustomEvent('bookstudy:progress'));
-    });
-  });
-
-  render();
-</script>
+  {sections.map((s, i) => (
+    <template class="rg-src" data-gi={i}>
+      {s.blocks.map((b) => (
+        b.type === 'list'
+          ? <ul>{b.items.map((it) => <li>{it}</li>)}</ul>
+          : <p>{b.text}</p>
+      ))}
+    </template>
+  ))}
+</div>
 
 <style>
-  /* Outer block — matches the chapter-card look so it reads as "another block" */
-  .guideblock{background:var(--card); border:1px solid var(--line); border-radius:14px;
-    margin:26px 0 0; box-shadow:var(--shadow); overflow:hidden}
-  .guideblock > summary{list-style:none; cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px 18px}
-  .guideblock > summary::-webkit-details-marker{display:none}
-  .gicon{font-family:var(--display); font-size:24px; color:var(--gold); line-height:1; min-width:30px; text-align:center}
-  .gmeta{flex:1; min-width:0}
-  .gttl{font-family:var(--display); font-weight:600; font-size:18px; display:block}
-  .gsub{font-size:12.5px; color:var(--ink-faint); margin-top:2px; display:block}
-  .gcount{color:var(--olive-deep); font-weight:600}
-  .gchev{color:var(--ink-faint); transition:transform .25s; font-size:13px}
-  .guideblock[open] > summary .gchev{transform:rotate(90deg)}
+  .rg{margin:14px 0 0}
+  .rg-tag{font-style:italic; color:var(--ink-soft); font-size:15px; margin:0 2px 14px}
+  .tracklist{display:flex; flex-direction:column; gap:8px}
+  .track{display:flex; align-items:center; gap:13px; width:100%; text-align:left; cursor:pointer;
+    background:var(--card); border:1px solid var(--line); border-left:3px solid transparent; border-radius:12px;
+    padding:14px 16px; box-shadow:var(--shadow); font-family:var(--serif);
+    -webkit-tap-highlight-color:transparent; transition:border-color .2s, background .2s, transform .12s}
+  .track:hover{border-color:var(--olive)}
+  .track:active{transform:translateY(1px)}
+  .tk-n{font-family:var(--display); font-weight:600; color:var(--rust); font-size:14px; font-variant-numeric:tabular-nums; transition:color .2s}
+  .tk-t{font-family:var(--display); font-weight:600; font-size:16px; flex:1; min-width:0}
+  .tk-badge{font-size:11px; font-weight:600; border-radius:20px; padding:3px 9px; white-space:nowrap; display:none}
+  .tk-next{color:#fff; background:var(--gold)}
+  .tk-done{color:var(--olive-deep); background:#e3e8d4}
+  .tk-play{font-family:var(--display); font-weight:600; color:var(--olive-deep); font-size:13px; white-space:nowrap}
 
-  .gbodywrap{padding:4px 18px 18px; border-top:1px solid var(--line)}
-  .gtag{font-style:italic; color:var(--ink-soft); font-size:15.5px; margin:14px 2px 4px}
-
-  /* Inner sections — lighter, collapsed unless featured as "next" */
-  .gsec{border-top:1px dashed var(--line); border-left:3px solid transparent; transition:border-color .2s, background .2s}
-  .gsec.next{border-left-color:var(--gold); background:#faf4e4}
-  .gsec summary{list-style:none; cursor:pointer; display:flex; align-items:center; gap:12px; padding:14px 8px 14px 11px}
-  .gsec summary::-webkit-details-marker{display:none}
-  .gn{font-family:var(--display); font-weight:600; color:var(--rust); font-size:13px; font-variant-numeric:tabular-nums; transition:color .2s}
-  .gt{font-family:var(--display); font-weight:600; font-size:16px; flex:1}
-  .gnext{font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:#fff; background:var(--gold);
-    border-radius:20px; padding:3px 9px; display:none}
-  .gsec.next:not(.done) .gnext{display:inline-block}
-  .gbadge{font-size:11px; font-weight:600; color:var(--olive-deep); background:#e3e8d4; border-radius:20px; padding:3px 9px; display:none}
-  .gsec.done .gbadge{display:inline-block}
-  .gsec.done .gn{color:var(--olive-deep)}
-  .gsec.done .gt{color:var(--ink-faint)}
-  .gchev2{color:var(--ink-faint); transition:transform .25s; font-size:12px}
-  .gsec[open] .gchev2{transform:rotate(180deg)}
-  .gbody{padding:0 8px 16px 11px}
-  .gbody p{margin:10px 0 0; color:var(--ink-soft); font-size:15px}
-  .gbody ul{margin:10px 0 0; padding-left:20px}
-  .gbody li{margin:7px 0; color:var(--ink-soft); font-size:14.5px}
-  .gbody li::marker{color:var(--gold)}
-  .markread{margin-top:14px; font-family:var(--display); font-weight:600; font-size:13px; cursor:pointer;
-    color:var(--olive-deep); background:#eef1e3; border:1px solid #c4cba8; border-radius:9px; padding:7px 14px;
-    -webkit-tap-highlight-color:transparent; transition:background .15s}
-  .markread:active{transform:translateY(1px)}
-  .gsec.done .markread{color:var(--ink-faint); background:none; border-color:var(--line)}
+  /* next (first unread) */
+  .track.next{border-left-color:var(--gold); background:#faf4e4}
+  .track.next .tk-next{display:inline-block}
+  /* done */
+  .track.done .tk-n{color:var(--olive-deep)}
+  .track.done .tk-t{color:var(--ink-faint)}
+  .track.done .tk-done{display:inline-block}
+  .track.done .tk-play{color:var(--ink-faint)}
+  /* currently shown in the canvas */
+  .track.active{border-color:var(--olive-deep); border-left-color:var(--olive-deep); background:#eef1e3}
+  .track.active .tk-play{color:var(--olive-deep)}
+  .track.active .tk-play::after{content:" (showing)"}
 </style>
