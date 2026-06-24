@@ -1,7 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
 import ReadingGuide from '../../components/ReadingGuide.astro';
-import QuizApp from '../../components/QuizApp.astro';
 import { books } from '../../lib/books.js';
 
 export function getStaticPaths() {
@@ -15,20 +14,25 @@ const howItWorks = {
     'Read a chapter, then open its quiz and answer before moving on — testing yourself right after reading is one of the most reliable ways to make what you read actually stick.\n\n' +
     "• Each chapter stays sealed until you mark it finished, so you can't peek at the questions ahead of time.\n" +
     '• Six multiple-choice questions are graded instantly; two short-answer questions come with a model answer you check yourself.\n' +
-    '• Your progress, answers, and scores are saved privately on this device — close the tab and pick up exactly where you left off.\n' +
-    '• Tap the progress bar at the top any time to open the full chapter list.',
+    '• Everything you read, answer, and score is saved privately on this device.\n' +
+    '• Tap the progress bar at the top any time to open the full contents.',
 };
 const guide = { tagline: book.guide?.tagline, sections: [howItWorks, ...(book.guide?.sections || [])] };
 const sectionTitles = guide.sections.map((s) => s.title);
 const total = book.totalChapters || book.chapters.length;
-const chapterNums = book.chapters.map((c) => c.chapter);
-const journeyTotal = total + 1; // +1 = the reading guide as step zero
+const journeyTotal = total + 1;
+const partList = (book.parts || []).map((p) => ({
+  ...p,
+  chs: book.chapters.filter((c) => c.chapter >= p.from && c.chapter <= p.to),
+}));
+// escape "<" so no stray </script> can break the inline JSON island
+const quizData = JSON.stringify({ chapters: book.chapters, parts: book.parts }).replace(/</g, '\\u003c');
 ---
 <Base title={`${book.title} — A Chapter Comprehension Companion`}>
   <div class="topbar">
     <div class="row">
       <a class="brand" href="/" title="Back to the shelf">‹ Shelf</a>
-      <button class="progress" id="progressBtn" type="button" title="Open the full chapter list">
+      <button class="progress" id="progressBtn" type="button" title="Open the full contents">
         <span class="ptrack"><span class="pfill" id="pfill"></span></span>
         <span class="pcount" id="pcount">0 / {journeyTotal}</span>
         <span class="pchev" aria-hidden="true">▦</span>
@@ -37,25 +41,37 @@ const journeyTotal = total + 1; // +1 = the reading guide as step zero
   </div>
 
   <div class="wrap">
-    <!-- Canvas: the stage you move through (title page → reading-guide sections) -->
+    <!-- The one canvas: title page, reading-guide sections, AND chapter quizzes all render here -->
     <section class="stage" id="canvas" aria-live="polite"></section>
-
-    <div class="rg-head">
-      <span class="rg-eyebrow">Reading Guide</span>
-      <span class="rg-hint">Tap a section to read it above ↑</span>
-    </div>
-    <ReadingGuide guide={guide} />
   </div>
 
-  <!-- Separate chapters screen, opened from the progress bar -->
-  <div class="screen" id="chaptersScreen" hidden aria-hidden="true">
+  <!-- Contents: a list/picker only. Selecting anything loads it into the canvas and closes. -->
+  <div class="screen" id="screen" hidden aria-hidden="true">
     <div class="screen-bar">
-      <span class="screen-title">{book.title} — Chapter Quizzes</span>
-      <button class="screen-close" id="chaptersClose" type="button">Done ✕</button>
+      <span class="screen-title">{book.title} — Contents</span>
+      <button class="screen-close" id="screenClose" type="button">Done ✕</button>
     </div>
     <div class="screen-body">
       <div class="wrap">
-        <QuizApp book={book} />
+        <div class="part"><span class="pn">Before You Read</span><span class="pl"></span></div>
+        <ReadingGuide guide={guide} />
+
+        {partList.map((p) => (
+          <div class="toc-group">
+            <div class="part"><span class="pn">Part {p.name}</span><span class="pl"></span></div>
+            <div class="picklist">
+              {p.chs.map((c) => (
+                <button class="pick" data-ch={c.chapter} type="button">
+                  <span class="pick-n">{String(c.chapter).padStart(2, '0')}</span>
+                  <span class="pick-t">Chapter {c.chapter}</span>
+                  <span class="pick-badge locked" data-ch-badge={c.chapter}>Locked</span>
+                  <span class="pick-go">Open ›</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+
         <footer class="foot">
           <span class="timshel big">Timshel.</span>
           Progress is saved privately on this device.
@@ -64,12 +80,21 @@ const journeyTotal = total + 1; // +1 = the reading guide as step zero
       </div>
     </div>
   </div>
+
+  <script type="application/json" id="bookdata" set:html={quizData}></script>
 </Base>
 
-<script define:vars={{ slug: book.slug, sectionTitles, bookTitle: book.title, author: book.author, total, chapterNums }}>
+<script define:vars={{ slug: book.slug, sectionTitles, bookTitle: book.title, author: book.author, total }}>
   const qKey = `book-study:${slug}:v1`;
   const gKey = `book-study:${slug}:guide:v1`;
   const read = (k) => { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch { return {}; } };
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
+  const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+  const BOOK = JSON.parse(document.getElementById('bookdata').textContent);
+  const CH = {}; BOOK.chapters.forEach((c) => (CH[c.chapter] = c));
+  const chapterNums = BOOK.chapters.map((c) => c.chapter);
+  const partName = (n) => { for (const p of BOOK.parts) if (n >= p.from && n <= p.to) return p.name; return ''; };
 
   const N = sectionTitles.length;
   const canvas = document.getElementById('canvas');
@@ -77,97 +102,185 @@ const journeyTotal = total + 1; // +1 = the reading guide as step zero
   const pcount = document.getElementById('pcount');
   const tracks = [...document.querySelectorAll('[data-tracklist] .track')];
   const srcs = [...document.querySelectorAll('.rg-src')];
-  const esc = (s) => String(s).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
+  const picks = [...document.querySelectorAll('.pick')];
 
-  let view = 'title'; // 'title' | 0..N-1
+  let view = { t: 'title' };
 
+  // ---- guide-section state ----
   const gdone = () => read(gKey).done || {};
   const isDone = (i) => !!gdone()[i];
   const setDone = (i, v) => { const g = read(gKey); g.done = g.done || {}; g.done[i] = v; localStorage.setItem(gKey, JSON.stringify(g)); };
   const nextUnread = () => { for (let i = 0; i < N; i++) if (!isDone(i)) return i; return -1; };
   const srcHtml = (i) => (srcs.find((s) => +s.dataset.gi === i)?.innerHTML || '');
 
+  // ---- chapter quiz state ----
+  const chState = (n) => read(qKey)[n] || { unlocked: false, answers: {}, checked: false, reveal: {} };
+  const saveCh = (n, st) => { const q = read(qKey); q[n] = st; localStorage.setItem(qKey, JSON.stringify(q)); };
+  const scoreOf = (c, st) => { let got = 0, tot = 0; c.questions.forEach((q, i) => { if (q.type === 'mcq') { tot++; if (st.answers[i] === q.answer) got++; } }); return { got, tot, pct: tot ? Math.round((got / tot) * 100) : 0 }; };
+  const scoreText = (c, st) => { const s = scoreOf(c, st); return s.tot ? `${s.pct}% · ${s.got}/${s.tot}` : 'Done'; };
+
   function render() {
-    if (view === 'title') {
-      canvas.innerHTML = `
-        <div class="cv cv-title">
-          <p class="cv-kicker">A Comprehension Companion</p>
-          <h1 class="cv-h1">${esc(bookTitle)}</h1>
-          <p class="cv-by">${esc(author)} — ${total} chapters, ${total} reckonings</p>
-          <button class="cv-btn" data-begin type="button">Begin the reading guide →</button>
-          <p class="cv-or">or <button class="cv-link" data-openchapters type="button">jump straight to the chapters</button></p>
-        </div>`;
-      canvas.querySelector('[data-begin]').onclick = () => go(nextUnread() >= 0 ? nextUnread() : 0);
-      canvas.querySelector('[data-openchapters]').onclick = openChapters;
-    } else {
-      const i = view, done = isDone(i);
-      canvas.innerHTML = `
-        <div class="cv cv-sec">
-          <div class="cv-eyebrowrow">
-            <span class="cv-eyebrow">Reading Guide · ${i + 1} of ${N}</span>
-            <span class="cv-doneflag${done ? ' on' : ''}">✓ read</span>
-          </div>
-          <h2 class="cv-h2">${esc(sectionTitles[i])}</h2>
-          <div class="cv-body">${srcHtml(i)}</div>
-          <div class="cv-actions">
-            <button class="cv-nav" data-prev type="button">${i === 0 ? '‹ Title' : '‹ Prev'}</button>
-            <button class="cv-mark${done ? ' done' : ''}" data-mark type="button">${done ? '✓ Read' : 'Mark as read'}</button>
-            <button class="cv-nav cv-next" data-next type="button">${i < N - 1 ? 'Next ›' : 'To chapters ›'}</button>
-          </div>
-        </div>`;
-      canvas.querySelector('[data-prev]').onclick = () => go(i === 0 ? 'title' : i - 1);
-      canvas.querySelector('[data-next]').onclick = () => (i < N - 1 ? go(i + 1) : openChapters());
-      canvas.querySelector('[data-mark]').onclick = () => { setDone(i, !isDone(i)); progress(); render(); canvas.scrollIntoView({ block: 'nearest' }); };
-    }
-    paintTracks();
+    if (view.t === 'title') renderTitle();
+    else if (view.t === 'g') renderSection(view.i);
+    else if (view.t === 'c') renderChapter(view.n);
+    applyActive();
   }
 
   function go(v, scroll = true) {
-    view = v; render();
-    if (scroll) canvas.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    view = v; closeScreen(); render();
+    if (scroll) { window.scrollTo({ top: 0, behavior: 'smooth' }); }
   }
 
-  function paintTracks() {
-    const nu = nextUnread();
-    tracks.forEach((t) => {
-      const i = +t.dataset.gi;
-      t.classList.toggle('done', isDone(i));
-      t.classList.toggle('next', i === nu);
-      t.classList.toggle('active', view === i);
+  // ---------- TITLE ----------
+  function renderTitle() {
+    canvas.innerHTML = `
+      <div class="cv cv-title">
+        <p class="cv-kicker">A Comprehension Companion</p>
+        <h1 class="cv-h1">${esc(bookTitle)}</h1>
+        <p class="cv-by">${esc(author)} — ${total} chapters, ${total} reckonings</p>
+        <button class="cv-btn" data-begin type="button">Begin the reading guide →</button>
+        <p class="cv-or">or <button class="cv-link" data-contents type="button">browse the full contents</button></p>
+      </div>`;
+    canvas.querySelector('[data-begin]').onclick = () => go({ t: 'g', i: nextUnread() >= 0 ? nextUnread() : 0 });
+    canvas.querySelector('[data-contents]').onclick = openScreen;
+  }
+
+  // ---------- READING-GUIDE SECTION ----------
+  function renderSection(i) {
+    const done = isDone(i);
+    canvas.innerHTML = `
+      <div class="cv cv-sec">
+        <div class="cv-eyebrowrow">
+          <span class="cv-eyebrow">Reading Guide · ${i + 1} of ${N}</span>
+          <span class="cv-doneflag${done ? ' on' : ''}">✓ read</span>
+        </div>
+        <h2 class="cv-h2">${esc(sectionTitles[i])}</h2>
+        <div class="cv-body">${srcHtml(i)}</div>
+        <div class="cv-actions">
+          <button class="cv-nav" data-prev type="button">${i === 0 ? '‹ Title' : '‹ Prev'}</button>
+          <button class="cv-mark${done ? ' done' : ''}" data-mark type="button">${done ? '✓ Read' : 'Mark as read'}</button>
+          <button class="cv-nav cv-next" data-next type="button">${i < N - 1 ? 'Next ›' : 'To chapters ›'}</button>
+        </div>
+        <div class="cv-contentsrow"><button class="cv-link" data-contents type="button">▦ Contents</button></div>
+      </div>`;
+    canvas.querySelector('[data-prev]').onclick = () => go(i === 0 ? { t: 'title' } : { t: 'g', i: i - 1 });
+    canvas.querySelector('[data-next]').onclick = () => (i < N - 1 ? go({ t: 'g', i: i + 1 }) : (CH[chapterNums[0]] ? go({ t: 'c', n: chapterNums[0] }) : openScreen()));
+    canvas.querySelector('[data-mark]').onclick = () => { setDone(i, !isDone(i)); progress(); applyActive(); renderSection(i); };
+    canvas.querySelector('[data-contents]').onclick = openScreen;
+  }
+
+  // ---------- CHAPTER QUIZ ----------
+  function renderQ(c, q, i) {
+    const tags = `<div class="cv-tags"><span class="cv-tag ${q.type}">${q.type === 'mcq' ? 'Multiple choice' : 'Short answer'}</span>${q.bloom ? `<span class="cv-tag">${esc(q.bloom)}</span>` : ''}${q.difficulty ? `<span class="cv-tag">${esc(q.difficulty)}</span>` : ''}</div>`;
+    let h = `<div class="cv-q" data-q="${i}" data-type="${q.type}" data-answer="${q.type === 'mcq' ? q.answer : -1}"><div class="cv-qhead"><span class="cv-qn">${i + 1}</span><span class="cv-qtext">${esc(q.question)}</span></div>${tags}`;
+    if (q.type === 'mcq') {
+      h += `<div class="cv-opts">`;
+      (q.options || []).forEach((o, j) => { h += `<label class="cv-opt" data-opt="${j}"><input type="radio" name="q${c.chapter}_${i}" value="${j}"><span class="cv-lt">${LETTERS[j]}</span><span>${esc(o)}</span><span class="cv-mk"></span></label>`; });
+      h += `</div><div class="cv-expl" data-expl><b>Why:</b> ${esc(q.explanation || '')}</div>`;
+    } else {
+      h += `<textarea class="cv-ta" data-ta placeholder="Write your response…"></textarea><div class="cv-model"><button class="cv-nav" data-model type="button">Reveal model answer ▾</button><div class="cv-expl" data-modeltext><span class="cv-mlabel">Model answer</span><br>${esc(q.modelAnswer || '')}${q.explanation ? `<br><br><b>Note:</b> ${esc(q.explanation)}` : ''}</div></div>`;
+    }
+    return h + `</div>`;
+  }
+
+  function renderChapter(n) {
+    const c = CH[n], st = chState(n), idx = chapterNums.indexOf(n), nextN = chapterNums[idx + 1];
+    let h = `<div class="cv cv-chapter">
+      <div class="cv-eyebrowrow"><span class="cv-eyebrow">Part ${esc(partName(n))} · Chapter ${n}</span>${st.checked ? `<span class="cv-doneflag on">${scoreText(c, st)}</span>` : ''}</div>
+      <h2 class="cv-h2">Chapter ${n}</h2>`;
+    if (!st.unlocked) {
+      h += `<div class="cv-gate"><div class="cv-lk">🔒</div><p>Finish reading Chapter ${n} first — then reveal the quiz. No peeking; that's the whole idea.</p>
+        <button class="cv-btn" data-unlock type="button">I've finished reading — reveal the quiz</button></div>`;
+    } else {
+      if (c.summary) h += `<div class="cv-csum"><b>In brief</b>${esc(c.summary)}</div>`;
+      c.questions.forEach((q, i) => { h += renderQ(c, q, i); });
+      h += `<div class="cv-qfoot"><span class="cv-score" data-score></span><button class="cv-mark" data-check type="button">Check my answers</button><button class="cv-nav" data-resetch type="button">Reset</button></div>`;
+    }
+    h += `<div class="cv-actions cv-chapnav"><button class="cv-nav" data-contents type="button">▦ Contents</button>${nextN ? `<button class="cv-nav cv-next" data-nextch="${nextN}" type="button">Chapter ${nextN} ›</button>` : ''}</div></div>`;
+    canvas.innerHTML = h;
+
+    canvas.querySelector('[data-contents]').onclick = openScreen;
+    const nb = canvas.querySelector('[data-nextch]'); if (nb) nb.onclick = () => go({ t: 'c', n: +nb.dataset.nextch });
+    const ub = canvas.querySelector('[data-unlock]'); if (ub) ub.onclick = () => { const s = chState(n); s.unlocked = true; saveCh(n, s); renderChapter(n); };
+    if (!st.unlocked) return;
+
+    c.questions.forEach((q, i) => {
+      if (q.type === 'mcq') {
+        canvas.querySelectorAll(`input[name="q${n}_${i}"]`).forEach((inp) => { inp.checked = st.answers[i] === +inp.value; inp.onchange = () => { const s = chState(n); s.answers[i] = +inp.value; saveCh(n, s); }; });
+      } else {
+        const ta = canvas.querySelector(`[data-q="${i}"] [data-ta]`); if (ta) { ta.value = st.answers[i] || ''; ta.oninput = () => { const s = chState(n); s.answers[i] = ta.value; saveCh(n, s); }; }
+        const mb = canvas.querySelector(`[data-q="${i}"] [data-model]`), mt = canvas.querySelector(`[data-q="${i}"] [data-modeltext]`);
+        if (mb) mb.onclick = () => { mt.classList.toggle('show'); const s = chState(n); s.reveal[i] = mt.classList.contains('show'); saveCh(n, s); };
+        if (st.reveal[i]) mt.classList.add('show');
+      }
     });
+    canvas.querySelector('[data-check]').onclick = () => { const s = chState(n); s.checked = true; saveCh(n, s); gradeChapter(n); progress(); paintPicks(); };
+    canvas.querySelector('[data-resetch]').onclick = () => { saveCh(n, { unlocked: true, answers: {}, checked: false, reveal: {} }); renderChapter(n); progress(); paintPicks(); };
+    if (st.checked) gradeChapter(n);
   }
 
+  function gradeChapter(n) {
+    const c = CH[n], st = chState(n);
+    c.questions.forEach((q, i) => {
+      if (q.type !== 'mcq') return;
+      const qel = canvas.querySelector(`[data-q="${i}"]`); if (!qel) return;
+      qel.querySelectorAll('[data-opt]').forEach((opt) => {
+        const j = +opt.dataset.opt, mk = opt.querySelector('.cv-mk'); opt.classList.remove('correct', 'wrong'); mk.textContent = '';
+        if (j === q.answer) { opt.classList.add('correct'); mk.textContent = '✓'; }
+        else if (st.answers[i] === j) { opt.classList.add('wrong'); mk.textContent = '✗'; }
+      });
+      qel.querySelector('[data-expl]').classList.add('show');
+    });
+    const s = scoreOf(c, st), el = canvas.querySelector('[data-score]');
+    if (el) el.innerHTML = s.tot ? `<span class="cv-pct">${s.pct}%</span> ${s.got} of ${s.tot} correct` : 'Self-assessed';
+  }
+
+  // ---------- shared ----------
   function progress() {
-    const g = gdone();
-    const guideDone = Object.values(g).filter(Boolean).length >= N && N > 0;
-    const q = read(qKey);
-    const checked = chapterNums.filter((n) => q[n] && q[n].checked).length;
-    const t = chapterNums.length + 1;
-    const done = (guideDone ? 1 : 0) + checked;
+    const g = gdone(), guideDone = Object.values(g).filter(Boolean).length >= N && N > 0;
+    const q = read(qKey), checked = chapterNums.filter((n) => q[n] && q[n].checked).length;
+    const t = chapterNums.length + 1, done = (guideDone ? 1 : 0) + checked;
     pfill.style.width = (t ? Math.round((done / t) * 100) : 0) + '%';
     pcount.textContent = `${done} / ${t}`;
   }
 
-  tracks.forEach((t) => (t.onclick = () => go(+t.dataset.gi)));
+  function applyActive() {
+    const nu = nextUnread();
+    tracks.forEach((t) => { const i = +t.dataset.gi; t.classList.toggle('done', isDone(i)); t.classList.toggle('next', i === nu); t.classList.toggle('active', view.t === 'g' && view.i === i); });
+    paintPicks();
+  }
 
-  // Chapters screen
-  const screen = document.getElementById('chaptersScreen');
-  function openChapters() { screen.hidden = false; screen.setAttribute('aria-hidden', 'false'); document.body.style.overflow = 'hidden'; screen.scrollTop = 0; }
-  function closeChapters() { screen.hidden = true; screen.setAttribute('aria-hidden', 'true'); document.body.style.overflow = ''; }
-  document.getElementById('progressBtn').onclick = openChapters;
-  document.getElementById('chaptersClose').onclick = closeChapters;
-  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !screen.hidden) closeChapters(); });
+  function paintPicks() {
+    const q = read(qKey);
+    picks.forEach((p) => {
+      const n = +p.dataset.ch, st = q[n], b = p.querySelector('[data-ch-badge]');
+      p.classList.toggle('active', view.t === 'c' && view.n === n);
+      if (st && st.checked) { b.className = 'pick-badge scored'; b.textContent = scoreText(CH[n], st); }
+      else if (st && st.unlocked) { b.className = 'pick-badge open'; b.textContent = 'Unlocked'; }
+      else { b.className = 'pick-badge locked'; b.textContent = 'Locked'; }
+    });
+  }
 
-  window.addEventListener('bookstudy:progress', () => { progress(); paintTracks(); });
+  // selectors
+  tracks.forEach((t) => (t.onclick = () => go({ t: 'g', i: +t.dataset.gi })));
+  picks.forEach((p) => (p.onclick = () => go({ t: 'c', n: +p.dataset.ch })));
+
+  // contents screen
+  const screen = document.getElementById('screen');
+  function openScreen() { screen.hidden = false; screen.setAttribute('aria-hidden', 'false'); document.body.style.overflow = 'hidden'; screen.scrollTop = 0; }
+  function closeScreen() { screen.hidden = true; screen.setAttribute('aria-hidden', 'true'); document.body.style.overflow = ''; }
+  document.getElementById('progressBtn').onclick = openScreen;
+  document.getElementById('screenClose').onclick = closeScreen;
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !screen.hidden) closeScreen(); });
+  const resetBtn = document.getElementById('resetAll');
+  if (resetBtn) resetBtn.onclick = () => { if (confirm('Reset all reading-guide and quiz progress on this device?')) { localStorage.removeItem(qKey); localStorage.removeItem(gKey); location.reload(); } };
 
   progress();
   render();
 </script>
 
-<!-- Canvas content is injected by JS at runtime, so its styles must be global
-     (scoped styles only attach to elements present in the template at build time). -->
 <style is:global>
-  .cv{background:var(--card); border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow); padding:34px 26px}
+  .cv{background:var(--card); border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow); padding:30px 24px}
   .cv-title{text-align:center; padding:54px 22px 48px}
   .cv-kicker{text-transform:uppercase; letter-spacing:.4em; font-size:11px; color:var(--rust); margin:0 0 18px; padding-left:.4em}
   .cv-h1{font-family:var(--display); font-weight:600; font-optical-sizing:auto; font-size:clamp(46px,13vw,84px); line-height:.92; margin:0; letter-spacing:-.01em}
@@ -181,8 +294,8 @@ const journeyTotal = total + 1; // +1 = the reading guide as step zero
 
   .cv-eyebrowrow{display:flex; align-items:center; gap:12px; margin-bottom:6px}
   .cv-eyebrow{font-family:var(--display); font-weight:600; text-transform:uppercase; letter-spacing:.18em; font-size:11.5px; color:var(--rust)}
-  .cv-doneflag{margin-left:auto; font-size:11px; font-weight:600; color:var(--olive-deep); background:#e3e8d4; border-radius:20px; padding:3px 10px; opacity:0; transition:opacity .2s}
-  .cv-doneflag.on{opacity:1}
+  .cv-doneflag{margin-left:auto; font-size:11px; font-weight:600; color:var(--olive-deep); background:#e3e8d4; border-radius:20px; padding:3px 10px; white-space:nowrap}
+  .cv-doneflag:not(.on){opacity:0}
   .cv-h2{font-family:var(--display); font-weight:600; font-size:clamp(26px,6vw,34px); line-height:1.05; margin:0 0 4px; letter-spacing:-.01em}
   .cv-body{margin-top:8px}
   .cv-body p{margin:14px 0 0; color:var(--ink-soft); font-size:16px; line-height:1.62}
@@ -199,11 +312,46 @@ const journeyTotal = total + 1; // +1 = the reading guide as step zero
     padding:10px 18px; border-radius:10px; -webkit-tap-highlight-color:transparent; transition:transform .12s}
   .cv-mark:active{transform:translateY(1px)}
   .cv-mark.done{background:none; color:var(--olive-deep); border:1px solid #c4cba8; box-shadow:none}
+  .cv-contentsrow{margin-top:14px; text-align:center}
+
+  /* chapter quiz inside the canvas */
+  .cv-gate{text-align:center; padding:26px 10px 14px}
+  .cv-gate .cv-lk{font-size:30px}
+  .cv-gate p{margin:8px auto 18px; max-width:44ch; color:var(--ink-soft); font-size:14.5px}
+  .cv-csum{margin:16px 0 4px; padding:14px 16px; background:#efe6cf; border-left:3px solid var(--gold); border-radius:0 10px 10px 0; font-style:italic; color:var(--ink-soft); font-size:14.5px}
+  .cv-csum b{font-style:normal; font-family:var(--display); color:var(--ink); display:block; margin-bottom:3px; font-size:12px; letter-spacing:.12em; text-transform:uppercase}
+  .cv-q{padding:20px 0; border-top:1px dashed var(--line)}
+  .cv-qhead{display:flex; gap:10px; align-items:flex-start}
+  .cv-qn{font-family:var(--display); font-weight:600; color:var(--rust); font-size:15px; min-width:26px}
+  .cv-qtext{font-size:16px; font-weight:500}
+  .cv-tags{display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 0 26px}
+  .cv-tag{font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); border:1px solid var(--line); border-radius:6px; padding:2px 7px}
+  .cv-tag.mcq{color:var(--olive-deep); border-color:#c4cba8; background:#eef1e3}
+  .cv-tag.short{color:var(--rust); border-color:#e0bfae; background:#f6e7df}
+  .cv-opts{margin:14px 0 0 26px; display:flex; flex-direction:column; gap:9px}
+  .cv-opt{display:flex; gap:11px; align-items:flex-start; padding:12px 14px; border:1px solid var(--line); border-radius:11px; background:#fffaef; cursor:pointer; font-size:15px}
+  .cv-opt:hover{border-color:var(--olive)}
+  .cv-opt input{margin:3px 0 0; accent-color:var(--olive); width:17px; height:17px; flex:none}
+  .cv-lt{font-family:var(--display); font-weight:600; color:var(--ink-faint); margin-right:2px}
+  .cv-opt.correct{background:#e7efd6; border-color:var(--olive)} .cv-opt.wrong{background:#f6e2da; border-color:var(--rust-soft)}
+  .cv-opt.correct .cv-lt{color:var(--olive-deep)} .cv-opt.wrong .cv-lt{color:var(--rust)}
+  .cv-mk{margin-left:auto; font-weight:700; flex:none}
+  .cv-opt.correct .cv-mk{color:var(--olive-deep)} .cv-opt.wrong .cv-mk{color:var(--rust)}
+  .cv-q textarea{width:100%; margin:12px 0 0; font-family:var(--serif); font-size:15.5px; color:var(--ink); background:#fffaef; border:1px solid var(--line); border-radius:11px; padding:12px 14px; min-height:92px; resize:vertical}
+  .cv-q textarea:focus{outline:2px solid var(--olive); border-color:var(--olive)}
+  .cv-expl{margin:12px 0 0 26px; padding:12px 15px; border-radius:10px; background:#efe6cf; font-size:14px; color:var(--ink-soft); border-left:3px solid var(--olive); display:none}
+  .cv-expl.show{display:block} .cv-expl b{font-family:var(--display); color:var(--olive-deep)}
+  .cv-model{margin-top:10px} .cv-mlabel{font-family:var(--display); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.1em; color:var(--rust)}
+  .cv-qfoot{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:22px; padding-top:18px; border-top:1px dashed var(--line)}
+  .cv-score{font-family:var(--display); font-weight:600; font-size:14px; margin-right:auto}
+  .cv-pct{font-size:20px; color:var(--olive-deep)}
+  .cv-chapnav{border-top:1px solid var(--line); padding-top:16px}
+
   @media(max-width:520px){
-    .cv{padding:26px 18px}
+    .cv{padding:24px 16px}
     .cv-title{padding:40px 12px 36px}
     .cv-next{margin-left:0}
-    .cv-actions{gap:8px}
+    .cv-tags,.cv-opts,.cv-expl{margin-left:0}
   }
 </style>
 
@@ -213,8 +361,7 @@ const journeyTotal = total + 1; // +1 = the reading guide as step zero
   .topbar .row{display:flex; align-items:center; gap:12px; max-width:760px; margin:0 auto}
   .brand{font-family:var(--display); font-weight:600; font-size:14px; text-decoration:none; white-space:nowrap; color:var(--ink)}
   .brand:hover{color:var(--rust)}
-  .progress{flex:1; display:flex; align-items:center; gap:11px; cursor:pointer; border:none; background:none; padding:6px 2px;
-    -webkit-tap-highlight-color:transparent}
+  .progress{flex:1; display:flex; align-items:center; gap:11px; cursor:pointer; border:none; background:none; padding:6px 2px; -webkit-tap-highlight-color:transparent}
   .ptrack{flex:1; height:8px; border-radius:20px; background:#e4d6b6; overflow:hidden; box-shadow:inset 0 1px 2px #0002}
   .pfill{display:block; height:100%; width:0; border-radius:20px; background:linear-gradient(90deg,var(--olive),var(--gold)); transition:width .6s cubic-bezier(.2,.8,.2,1)}
   .pcount{font-size:12.5px; color:var(--ink-soft); white-space:nowrap; font-variant-numeric:tabular-nums}
@@ -224,24 +371,36 @@ const journeyTotal = total + 1; // +1 = the reading guide as step zero
   .wrap{padding-top:18px}
   .stage{margin-top:14px}
 
-  /* ---- Reading guide header ---- */
-  .rg-head{display:flex; align-items:baseline; gap:12px; margin:40px 0 4px}
-  .rg-eyebrow{font-family:var(--display); font-weight:600; text-transform:uppercase; letter-spacing:.24em; font-size:13px; color:var(--rust)}
-  .rg-hint{font-size:12.5px; color:var(--ink-faint); font-style:italic}
+  .part{margin:30px 0 10px; display:flex; align-items:baseline; gap:14px}
+  .pn{font-family:var(--display); font-weight:600; font-size:13px; letter-spacing:.32em; text-transform:uppercase; color:var(--rust)}
+  .pl{flex:1; height:1px; background:var(--line)}
 
-  /* ---- Chapters screen ---- */
-  .screen{position:fixed; inset:0; z-index:50; background:var(--paper-2);
-    background:radial-gradient(120% 80% at 50% -10%, #f7efdd 0%, var(--paper) 45%, var(--paper-2) 100%);
-    overflow-y:auto; -webkit-overflow-scrolling:touch}
+  .picklist{display:flex; flex-direction:column; gap:8px}
+  .pick{display:flex; align-items:center; gap:13px; width:100%; text-align:left; cursor:pointer; background:var(--card);
+    border:1px solid var(--line); border-radius:12px; padding:13px 16px; box-shadow:var(--shadow); font-family:var(--serif);
+    -webkit-tap-highlight-color:transparent; transition:border-color .2s, transform .12s}
+  .pick:hover{border-color:var(--olive)} .pick:active{transform:translateY(1px)}
+  .pick.active{border-color:var(--olive-deep); background:#eef1e3}
+  .pick-n{font-family:var(--display); font-weight:600; color:var(--olive-deep); font-size:18px; min-width:30px; font-variant-numeric:tabular-nums}
+  .pick-t{font-family:var(--display); font-weight:600; font-size:16px; flex:1; min-width:0}
+  .pick-badge{font-size:11px; font-weight:600; border-radius:20px; padding:4px 10px; white-space:nowrap}
+  .pick-badge.locked{background:#e7dbbe; color:var(--ink-faint)}
+  .pick-badge.open{background:#e3e8d4; color:var(--olive-deep)}
+  .pick-badge.scored{background:var(--olive-deep); color:#f3ead7}
+  .pick-go{font-family:var(--display); font-weight:600; color:var(--olive-deep); font-size:13px}
+
+  /* contents screen */
+  .screen{position:fixed; inset:0; z-index:50; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    background:radial-gradient(120% 80% at 50% -10%, #f7efdd 0%, var(--paper) 45%, var(--paper-2) 100%)}
   .screen[hidden]{display:none}
-  .screen-bar{position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:12px; justify-content:space-between;
+  .screen-bar{position:sticky; top:0; z-index:5; display:flex; align-items:center; justify-content:space-between; gap:12px;
     padding:12px 18px; background:linear-gradient(#f3ead7f2,#f3ead7d8); backdrop-filter:blur(8px); border-bottom:1px solid var(--line)}
   .screen-title{font-family:var(--display); font-weight:600; font-size:15px}
-  .screen-close{font-family:var(--display); font-weight:600; font-size:14px; cursor:pointer; color:var(--rust);
-    background:none; border:1px solid var(--line); border-radius:10px; padding:8px 14px; -webkit-tap-highlight-color:transparent}
+  .screen-close{font-family:var(--display); font-weight:600; font-size:14px; cursor:pointer; color:var(--rust); background:none; border:1px solid var(--line); border-radius:10px; padding:8px 14px}
   .screen-close:hover{border-color:var(--rust)}
   .screen-body{padding-bottom:60px}
-  .screen .wrap{max-width:760px; margin:0 auto; padding:0 18px}
+  .screen .wrap{max-width:760px; margin:0 auto; padding:8px 18px 0}
+  .toc-group{margin-top:6px}
 
   .foot{text-align:center; margin-top:44px; color:var(--ink-faint); font-size:13px; font-style:italic}
   .foot .big{font-size:20px; display:block; color:var(--ink-soft); margin-bottom:6px}
