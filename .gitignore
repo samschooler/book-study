@@ -3,3 +3,8 @@ dist/
 .astro/
 .DS_Store
 npm-debug.log*
+
+# Generation intermediates — includes full copyrighted book text + EPUB.
+# Regenerated on demand by tooling/fetch_split.py. Never commit these.
+tooling/work/
+*.epub

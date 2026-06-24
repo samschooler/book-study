@@ -68,9 +68,14 @@ const spineCount = Math.max(0, 5 - books.length);
   footer .ts{font-family:var(--display); font-style:italic; font-size:18px; color:var(--ink-soft); display:block; margin-bottom:6px;}
 
   @media(max-width:560px){
-    .books{gap:18px; justify-content:center; min-height:0}
-    .spine{height:188px; width:40px}
-    .case{padding:14px 12px 0}
-    .shelf{padding:26px 4px 0}
+    .books{gap:14px; justify-content:center; flex-wrap:nowrap; min-height:0}
+    .spine{height:196px; width:38px}
+    .spine:nth-of-type(n+3){display:none}  /* featured book + 2 spines: fits down to 320px */
+    .case{padding:14px 10px 0}
+    .shelf{padding:26px 6px 0}
+  }
+  @media(max-width:360px){
+    .books{gap:11px}
+    .spine{width:34px}
   }
 </style>

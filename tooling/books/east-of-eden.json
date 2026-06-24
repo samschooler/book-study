@@ -1,0 +1,18 @@
+{
+  "slug": "east-of-eden",
+  "title": "East of Eden",
+  "author": "John Steinbeck",
+  "order": 1,
+  "blurb": "Reading guide + 55 chapter quizzes",
+  "searchQuery": "East of Eden Steinbeck",
+  "language": "English",
+  "mcqPerChapter": 6,
+  "shortPerChapter": 2,
+  "parts": [
+    { "name": "One",   "from": 1,  "to": 11 },
+    { "name": "Two",   "from": 12, "to": 22 },
+    { "name": "Three", "from": 23, "to": 33 },
+    { "name": "Four",  "from": 34, "to": 45 },
+    { "name": "Five",  "from": 46, "to": 55 }
+  ]
+}

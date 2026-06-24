@@ -11,6 +11,7 @@
 html{-webkit-text-size-adjust:100%}
 body{
   margin:0; font-family:var(--serif); color:var(--ink); line-height:1.6; min-height:100vh;
+  overflow-x:hidden;
   background:radial-gradient(120% 80% at 50% -10%, #f7efdd 0%, var(--paper) 45%, var(--paper-2) 100%) fixed;
 }
 body::before{
