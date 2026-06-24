@@ -42,7 +42,7 @@ const sections = (guide?.sections || []).map((s) => ({ ...s, blocks: blocks(s.bo
                 ? <ul>{b.items.map((it) => <li>{it}</li>)}</ul>
                 : <p>{b.text}</p>
             ))}
-            <button class="markread" data-markread type="button">Mark as read &amp; go to next</button>
+            <button class="markread" data-markread type="button">Mark as read</button>
           </div>
         </details>
       ))}
@@ -55,38 +55,29 @@ const sections = (guide?.sections || []).map((s) => ({ ...s, blocks: blocks(s.bo
   let st = load();
   function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } }
   function save() { localStorage.setItem(KEY, JSON.stringify(st)); }
-  st.done = st.done || {};   // { sectionIndex: true }
+  st.done = st.done || {};   // { sectionIndex: true } — only completion persists
 
-  const block = document.querySelector('[data-guide]');
   const secs = [...document.querySelectorAll('.gsec')];
 
-  // Persist the outer block's open/closed state.
-  if (st.open) block.open = true;
-  block.addEventListener('toggle', () => { st.open = block.open; save(); });
-
+  // The block and its sections default CLOSED on every load, exactly like the chapter
+  // cards — open/closed state is intentionally not persisted. We only persist which
+  // sections are marked read, and visually FEATURE (highlight + "Up next" badge) the
+  // next unread section so it's easy to find without auto-expanding anything.
   const isDone = (i) => !!st.done[i];
   const nextIndex = () => { for (const s of secs) if (!isDone(s.dataset.gi)) return Number(s.dataset.gi); return -1; };
 
-  // Feature only the next unread section (open + badge); collapse the rest. This is
-  // what keeps the guide tidy — you always see exactly the one section you're up to,
-  // not seven competing for attention. Marking it read advances the feature.
-  function render({ focusNext = false } = {}) {
+  function render() {
     const nxt = nextIndex();
     secs.forEach((sec) => {
       const i = sec.dataset.gi;
       const done = isDone(i);
       sec.classList.toggle('done', done);
       sec.classList.toggle('next', Number(i) === nxt);
-      sec.querySelector('[data-markread]').textContent = done ? '✓ Read — mark unread' : 'Mark as read & go to next';
-      // Default open state: only the featured "next" section is expanded.
-      sec.open = Number(i) === nxt;
+      sec.querySelector('[data-markread]').textContent = done ? '✓ Read — mark unread' : 'Mark as read';
     });
     const doneCount = secs.filter((s) => isDone(s.dataset.gi)).length;
     const el = document.querySelector('[data-guide-count]');
     if (el) el.textContent = doneCount ? `· ${doneCount}/${secs.length} read` : '';
-    if (focusNext && nxt >= 0 && block.open) {
-      secs.find((s) => Number(s.dataset.gi) === nxt)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
   }
 
   secs.forEach((sec) => {
@@ -95,7 +86,7 @@ const sections = (guide?.sections || []).map((s) => ({ ...s, blocks: blocks(s.bo
       const i = sec.dataset.gi;
       st.done[i] = !st.done[i];
       save();
-      render({ focusNext: st.done[i] });   // advancing forward → scroll to the new "next"
+      render();
       window.dispatchEvent(new CustomEvent('bookstudy:progress'));
     });
   });
