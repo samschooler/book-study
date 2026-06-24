@@ -8,8 +8,18 @@ export function getStaticPaths() {
   return books.map((b) => ({ params: { book: b.slug }, props: { book: b } }));
 }
 const { book } = Astro.props;
-const philosophy = book.spec?.philosophy ||
-  'A formative, chapter-by-chapter check on close reading — weighted toward inference, theme, character, and Steinbeck’s craft.';
+
+// "How this page works" lives inside the Reading Guide block as its first section,
+// so the orientation is one tap away instead of permanently on screen.
+const howItWorks = {
+  title: 'How this page works',
+  body:
+    'Read a chapter, then open its quiz and answer before moving on — testing yourself right after reading is one of the most reliable ways to make what you read actually stick.\n\n' +
+    "• Each chapter below stays sealed until you mark it finished, so you can't peek at the questions ahead of time.\n" +
+    '• Six multiple-choice questions are graded instantly; two short-answer questions come with a model answer you check yourself.\n' +
+    '• Your progress, answers, and scores are saved privately on this device — close the tab and pick up exactly where you left off.',
+};
+const guide = { tagline: book.guide?.tagline, sections: [howItWorks, ...(book.guide?.sections || [])] };
 ---
 <Base title={`${book.title} — A Chapter Comprehension Companion`}>
   <div class="topbar">
@@ -28,13 +38,7 @@ const philosophy = book.spec?.philosophy ||
       <div class="rule"><span class="timshel">Read closely. Earn the questions.</span></div>
     </header>
 
-    <ReadingGuide guide={book.guide} />
-
-    <div class="about">
-      <b>How the quizzes work.</b> {philosophy}
-      Each chapter below stays <b>sealed</b> until you tell it you've finished reading — no peeking ahead. Your answers and scores are saved privately on this device, so you can close the tab and pick up right where you left off.
-    </div>
-    <div class="cta-row"><a class="btn" href="#quizzes">Begin the chapter quizzes ↓</a></div>
+    <ReadingGuide guide={guide} title={book.title} />
 
     <QuizApp book={book} />
 
@@ -61,10 +65,6 @@ const philosophy = book.spec?.philosophy ||
   .byline{font-style:italic; color:var(--ink-soft); margin:14px 0 0; font-size:17px}
   .rule{display:flex; align-items:center; gap:14px; margin:22px auto 0; max-width:360px; color:var(--gold)}
   .rule::before,.rule::after{content:""; height:1px; flex:1; background:linear-gradient(90deg,transparent,var(--line),transparent)}
-
-  .about{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin:26px 0 0; box-shadow:var(--shadow); font-size:15px; color:var(--ink-soft)}
-  .about b{color:var(--ink); font-weight:600}
-  .cta-row{text-align:center; margin:18px 0 0}
 
   .foot{text-align:center; margin-top:60px; color:var(--ink-faint); font-size:13px; font-style:italic}
   .foot .big{font-size:20px; display:block; color:var(--ink-soft); margin-bottom:6px}

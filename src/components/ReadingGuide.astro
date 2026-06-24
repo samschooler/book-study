@@ -1,8 +1,8 @@
 ---
-const { guide } = Astro.props;
+const { guide, title } = Astro.props;
 
 // Turn a plain-text body (paragraphs split by \n\n, bullet lines starting "• ")
-// into structured blocks for clean, framework-y rendering.
+// into structured blocks for clean rendering.
 function blocks(body) {
   return (body || '').split(/\n\n+/).map((chunk) => {
     const lines = chunk.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -12,50 +12,68 @@ function blocks(body) {
     return { type: 'p', text: chunk.replace(/\n/g, ' ') };
   });
 }
-const sections = (guide?.sections || []).map((s, i) => ({ ...s, blocks: blocks(s.body), open: i === 0 }));
+const sections = (guide?.sections || []).map((s) => ({ ...s, blocks: blocks(s.body) }));
 ---
-<section class="guide">
-  <div class="ghead">
-    <p class="kicker">Before You Begin</p>
-    <h2 class="gtitle">The Reading Guide</h2>
-    {guide?.tagline && <p class="gtag">{guide.tagline}</p>}
-  </div>
+<details class="guideblock">
+  <summary>
+    <span class="gicon">❦</span>
+    <span class="gmeta">
+      <span class="gttl">Reading Guide</span>
+      <span class="gsub">How to read {title} — {sections.length} short sections, plus how this page works</span>
+    </span>
+    <span class="gchev">▶</span>
+  </summary>
 
-  <div class="gsections">
-    {sections.map((s, i) => (
-      <details class="gsec" open={s.open}>
-        <summary>
-          <span class="gn">{String(i + 1).padStart(2, '0')}</span>
-          <span class="gt">{s.title}</span>
-          <span class="gchev">▾</span>
-        </summary>
-        <div class="gbody">
-          {s.blocks.map((b) => (
-            b.type === 'list'
-              ? <ul>{b.items.map((it) => <li>{it}</li>)}</ul>
-              : <p>{b.text}</p>
-          ))}
-        </div>
-      </details>
-    ))}
+  <div class="gbodywrap">
+    {guide?.tagline && <p class="gtag">{guide.tagline}</p>}
+    <div class="gsections">
+      {sections.map((s, i) => (
+        <details class="gsec">
+          <summary>
+            <span class="gn">{String(i + 1).padStart(2, '0')}</span>
+            <span class="gt">{s.title}</span>
+            <span class="gchev2">▾</span>
+          </summary>
+          <div class="gbody">
+            {s.blocks.map((b) => (
+              b.type === 'list'
+                ? <ul>{b.items.map((it) => <li>{it}</li>)}</ul>
+                : <p>{b.text}</p>
+            ))}
+          </div>
+        </details>
+      ))}
+    </div>
   </div>
-</section>
+</details>
 
 <style>
-  .guide{margin:8px 0 0}
-  .ghead{text-align:center; margin:18px 0 22px}
-  .gtitle{font-family:var(--display); font-weight:600; font-size:clamp(28px,7vw,40px); margin:0; letter-spacing:-.01em}
-  .gtag{font-style:italic; color:var(--ink-soft); max-width:48ch; margin:12px auto 0; font-size:16px}
-  .gsec{background:var(--card); border:1px solid var(--line); border-radius:13px; margin:10px 0; box-shadow:var(--shadow); overflow:hidden}
-  .gsec summary{list-style:none; cursor:pointer; display:flex; align-items:center; gap:13px; padding:16px 18px}
-  .gsec summary::-webkit-details-marker{display:none}
-  .gn{font-family:var(--display); font-weight:600; color:var(--rust); font-size:14px; font-variant-numeric:tabular-nums}
-  .gt{font-family:var(--display); font-weight:600; font-size:18px; flex:1}
+  /* Outer block — matches the chapter-card look so it reads as "another block" */
+  .guideblock{background:var(--card); border:1px solid var(--line); border-radius:14px;
+    margin:26px 0 0; box-shadow:var(--shadow); overflow:hidden}
+  .guideblock > summary{list-style:none; cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px 18px}
+  .guideblock > summary::-webkit-details-marker{display:none}
+  .gicon{font-family:var(--display); font-size:24px; color:var(--gold); line-height:1; min-width:30px; text-align:center}
+  .gmeta{flex:1; min-width:0}
+  .gttl{font-family:var(--display); font-weight:600; font-size:18px; display:block}
+  .gsub{font-size:12.5px; color:var(--ink-faint); margin-top:2px; display:block}
   .gchev{color:var(--ink-faint); transition:transform .25s; font-size:13px}
-  .gsec[open] .gchev{transform:rotate(180deg)}
-  .gbody{padding:0 18px 18px; border-top:1px solid var(--line)}
-  .gbody p{margin:13px 0 0; color:var(--ink-soft); font-size:15.5px}
-  .gbody ul{margin:12px 0 0; padding-left:20px}
-  .gbody li{margin:7px 0; color:var(--ink-soft); font-size:15px}
+  .guideblock[open] > summary .gchev{transform:rotate(90deg)}
+
+  .gbodywrap{padding:4px 18px 18px; border-top:1px solid var(--line)}
+  .gtag{font-style:italic; color:var(--ink-soft); font-size:15.5px; margin:14px 2px 4px}
+
+  /* Inner sections — lighter, all collapsed by default */
+  .gsec{border-top:1px dashed var(--line)}
+  .gsec summary{list-style:none; cursor:pointer; display:flex; align-items:center; gap:12px; padding:14px 2px}
+  .gsec summary::-webkit-details-marker{display:none}
+  .gn{font-family:var(--display); font-weight:600; color:var(--rust); font-size:13px; font-variant-numeric:tabular-nums}
+  .gt{font-family:var(--display); font-weight:600; font-size:16px; flex:1}
+  .gchev2{color:var(--ink-faint); transition:transform .25s; font-size:12px}
+  .gsec[open] .gchev2{transform:rotate(180deg)}
+  .gbody{padding:0 2px 16px}
+  .gbody p{margin:10px 0 0; color:var(--ink-soft); font-size:15px}
+  .gbody ul{margin:10px 0 0; padding-left:20px}
+  .gbody li{margin:7px 0; color:var(--ink-soft); font-size:14.5px}
   .gbody li::marker{color:var(--gold)}
 </style>
