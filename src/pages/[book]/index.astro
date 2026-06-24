@@ -361,11 +361,14 @@ const quizData = JSON.stringify({ chapters: book.chapters, parts: book.parts }).
   .cv-pct{font-size:20px; color:var(--olive-deep)}
   .cv-chapnav{border-top:1px solid var(--line); padding-top:16px}
 
-  @media(max-width:520px){
-    .cv{padding:24px 16px}
-    .cv-title{padding:40px 12px 36px}
+  @media(max-width:560px){
+    /* Drop the outer canvas card on mobile so the inner option/summary cards aren't
+       nested inside another card ("double card"). Content sits on the paper instead. */
+    .cv{background:none; border:none; box-shadow:none; border-radius:0; padding:4px 0}
+    .cv-title{padding:30px 4px 26px}
     .cv-next{margin-left:0}
     .cv-tags,.cv-opts,.cv-expl{margin-left:0}
+    .cv-q{padding:18px 0}
   }
 </style>
 
