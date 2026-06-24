@@ -66,18 +66,34 @@ tools. Intermediates live in `tooling/work/<slug>/` (gitignored — see Copyrigh
    "being prepared" state until chapters exist, and locks each chapter's quiz until
    the reader marks it finished).
 
-7. **Deploy** — `bash tooling/redeploy.sh "<commit message>"`. Builds, pushes to
-   GitHub, triggers the Coolify deploy, and polls to completion.
+7. **Validate** — `python3 tooling/validate.py <slug>` (strict: completeness +
+   well-formedness). This is the gate; **always run it before claiming done.** Add
+   `--partial` to allow an in-progress book (skips the missing-chapter check but
+   still rejects malformed items). `redeploy.sh` runs `--partial` on every book
+   automatically and aborts the deploy on failure.
+
+8. **Deploy** — `bash tooling/redeploy.sh "<commit message>"`. Validates, builds,
+   pushes to GitHub, triggers the Coolify deploy, and polls to completion.
 
 ## Things that will bite you (learned the hard way)
 
-- **A generator occasionally fails schema validation** (returns an object missing
-  `questions`), retries, and dies — the pipeline then drops that chapter and skips
-  its verify, so you silently end up at N-1. `extract_journal.py` flags missing /
-  draft-only chapters. **Always check its output.** To recover one chapter: dispatch
-  a single Agent that reads `tooling/work/<slug>/chapters/chNN.txt` + the spec,
-  generates and self-verifies, and writes `tooling/work/<slug>/site-data/chNN.json`;
-  then re-run `assemble.py`. (This is exactly how Ch 16 of East of Eden was saved.)
+- **Agents fail in three sneaky ways the workflow accepts as "success":** (a) output
+  missing `questions` → fails schema, retries, dies, pipeline drops the chapter
+  (you end up at N-1); (b) a verify agent returns a schema-valid but EMPTY object
+  ("couldn't read the text" — a flaky-read it should have retried) which then
+  overwrites the good draft; (c) a verify agent returns the wrong COUNT (1, 9, 12
+  questions instead of 8) or a malformed MCQ. `extract_journal.py` handles (a)/(b)
+  (keeps the last result that actually has questions, and reports `empty` chapters);
+  `validate.py` catches (c). **Trust neither the workflow's success status nor the
+  chapter count alone — always run `validate.py`.** On the East of Eden run, 1
+  chapter hit (a), 17 hit (b), and 8 hit (c) — 26 of 55 needed recovery.
+- **Recover in batches** with a tiny parallel workflow: one self-contained agent per
+  chapter that reads `chNN.txt` + the spec, generates EXACTLY 6 mcq + 2 short,
+  self-verifies, and **writes its own `site-data/chNN.json`** (no schema arg, no
+  return-value dependency — this is far more reliable than the two-stage pipeline for
+  a known list of chapters). Then re-run `assemble.py` → `validate.py`. Inline the
+  chapter list and paths as constants in the script; passing them via Workflow `args`
+  did not bind reliably.
 - **Workflow concurrency is capped** at `min(16, cpu_cores − 2)` by the runtime — not
   configurable. Verify agents queue behind generators; a 55-chapter book takes a
   while. That's expected, not a hang.
