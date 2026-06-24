@@ -1,0 +1,45 @@
+---
+const { book, featured = false } = Astro.props;
+const done = (book.chapters?.length ?? 0);
+const total = book.totalChapters ?? done;
+const ready = done >= total && total > 0;
+---
+<a class="book" href={`/${book.slug}/`} aria-label={`Open the ${book.title} study companion`}>
+  {featured && <span class="tag">Start here</span>}
+  <div class="cover">
+    <img src={book.cover} alt={`${book.title} by ${book.author}`} />
+    <span class="glow"></span>
+  </div>
+  <div class="meta">
+    <div class="bt">{book.title}</div>
+    <div class="ba">{book.author}</div>
+    <div class="bd">{ready ? `${book.blurb} →` : `Reading guide live · quizzes loading (${done}/${total}) →`}</div>
+  </div>
+</a>
+
+<style>
+  .book{position:relative; z-index:2; text-decoration:none; color:inherit; display:block;
+    transition:transform .3s cubic-bezier(.2,.8,.2,1);}
+  .cover{width:172px; height:263px; border-radius:3px 6px 6px 3px; overflow:hidden; position:relative;
+    box-shadow:0 1px 0 #fff6 inset,-7px 0 10px -6px #00000066,18px 26px 34px -18px #2b1a0e; background:#ddd;}
+  .cover img{width:100%; height:100%; object-fit:cover; display:block;}
+  .cover::before{content:""; position:absolute; left:0; top:0; bottom:0; width:9px; z-index:2;
+    background:linear-gradient(90deg,#0006,#0000 60%);}
+  .cover::after{content:""; position:absolute; right:0; top:0; bottom:0; width:5px;
+    background:repeating-linear-gradient(90deg,#cdbfa3 0 1px,#b7a888 1px 2px); z-index:2;}
+  .glow{position:absolute; inset:0; background:linear-gradient(120deg,#fff5 0%,#fff0 40%); opacity:0; transition:opacity .3s; z-index:3;}
+  .book:hover{transform:translateY(-14px) rotate(-1deg);}
+  .book:hover .glow{opacity:.5}
+  .book:hover .cover{box-shadow:0 1px 0 #fff6 inset,-7px 0 10px -6px #0006,26px 40px 50px -20px #2b1a0ecc;}
+  .tag{position:absolute; top:10px; right:-8px; z-index:4; background:var(--rust); color:#f3ead7;
+    font-family:var(--display); font-weight:600; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+    padding:4px 10px; border-radius:3px; box-shadow:0 6px 12px -6px #00000088;}
+  .meta{margin-top:14px; text-align:center; max-width:172px;}
+  .bt{font-family:var(--display); font-weight:600; font-size:16px; line-height:1.1;}
+  .ba{font-size:12.5px; color:var(--ink-faint); font-style:italic; margin-top:2px;}
+  .bd{font-size:11.5px; color:var(--olive); margin-top:7px; font-family:var(--display); font-weight:600;}
+  @media(max-width:560px){
+    .cover{width:138px; height:211px}
+    .meta{max-width:138px}
+  }
+</style>

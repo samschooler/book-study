@@ -1,0 +1,276 @@
+---
+const { book } = Astro.props;
+const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+const chapters = book.chapters || [];
+const byNum = Object.fromEntries(chapters.map((c) => [c.chapter, c]));
+const parts = (book.parts || []).map((p) => ({
+  ...p,
+  list: [],
+}));
+for (const p of parts) for (let n = p.from; n <= p.to; n++) if (byNum[n]) p.list.push(byNum[n]);
+const ready = chapters.length > 0;
+---
+<div class="qdivider" id="quizzes"><span>The Chapter Quizzes</span></div>
+
+{!ready && (
+  <div class="pending">
+    <div class="lk">✶</div>
+    <h3>The chapter quizzes are being prepared</h3>
+    <p>All 55 chapters are being written and fact-checked against the text right now. They'll appear here automatically — the reading guide above is ready whenever you are.</p>
+  </div>
+)}
+
+{ready && parts.map((p) => (
+  <section class="part-block">
+    <div class="part"><span class="pn">Part {p.name}</span><span class="pl"></span></div>
+    {p.list.map((c) => {
+      const mcqN = c.questions.filter((q) => q.type === 'mcq').length;
+      const shortN = c.questions.filter((q) => q.type === 'short').length;
+      return (
+        <details class="ch" data-ch={c.chapter}>
+          <summary>
+            <span class="chno">{String(c.chapter).padStart(2, '0')}</span>
+            <span class="chmeta">
+              <span class="chttl">Chapter {c.chapter}</span>
+              <span class="chsub">{mcqN} multiple-choice · {shortN} short-answer</span>
+            </span>
+            <span class="badge locked" data-badge>Locked</span>
+            <span class="chev">▶</span>
+          </summary>
+          <div class="chbody">
+            <div class="gate">
+              <div class="lk">🔒</div>
+              <h3>Finish Chapter {c.chapter} first</h3>
+              <p>The questions stay sealed until you've read the chapter. No peeking — that's the whole idea.</p>
+              <button class="btn" data-unlock>I've finished reading Chapter {c.chapter} — reveal the quiz</button>
+            </div>
+
+            <div class="quiz">
+              {c.summary && <div class="summary"><b>Chapter {c.chapter} — in brief</b>{c.summary}</div>}
+
+              {c.questions.map((q, i) => (
+                <div class="q" data-q={i} data-type={q.type} data-answer={q.type === 'mcq' ? q.answer : -1}>
+                  <div class="qhead"><span class="qn">{i + 1}</span><span class="qtext">{q.question}</span></div>
+                  <div class="tags">
+                    <span class={`tag ${q.type}`}>{q.type === 'mcq' ? 'Multiple choice' : 'Short answer'}</span>
+                    {q.bloom && <span class="tag">{q.bloom}</span>}
+                    {q.difficulty && <span class="tag">{q.difficulty}</span>}
+                  </div>
+
+                  {q.type === 'mcq' ? (
+                    <>
+                      <div class="opts">
+                        {(q.options || []).map((o, j) => (
+                          <label class="opt" data-opt={j}>
+                            <input type="radio" name={`q${c.chapter}_${i}`} value={j} />
+                            <span class="lt">{LETTERS[j]}</span><span>{o}</span><span class="mk"></span>
+                          </label>
+                        ))}
+                      </div>
+                      <div class="expl"><b>Why:</b> {q.explanation}</div>
+                    </>
+                  ) : (
+                    <>
+                      <textarea data-ta placeholder="Write your response…"></textarea>
+                      <div class="model">
+                        <button class="btn ghost" data-model>Reveal model answer ▾</button>
+                        <div class="expl model-text">
+                          <span class="mlabel">Model answer</span><br />{q.modelAnswer}
+                          {q.explanation && <><br /><br /><b>Note:</b> {q.explanation}</>}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+
+              <div class="chfoot">
+                <span class="score" data-score></span>
+                <button class="btn rust" data-check>Check my answers</button>
+                <button class="btn ghost" data-rechapter>Reset chapter</button>
+              </div>
+            </div>
+          </div>
+        </details>
+      );
+    })}
+  </section>
+))}
+
+<script define:vars={{ slug: book.slug, total: book.totalChapters || chapters.length }}>
+  const KEY = `book-study:${slug}:v1`;
+  let state = load();
+  function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } }
+  function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+  function cs(ch) { return state[ch] || (state[ch] = { unlocked: false, answers: {}, checked: false, reveal: {} }); }
+
+  const chapters = [...document.querySelectorAll('details.ch')];
+
+  function scoreOf(det) {
+    const ch = det.dataset.ch, st = cs(ch); let got = 0, tot = 0;
+    det.querySelectorAll('.q[data-type="mcq"]').forEach((q) => {
+      tot++; const i = q.dataset.q; if (st.answers[i] === Number(q.dataset.answer)) got++;
+    });
+    return { got, tot, pct: tot ? Math.round((got / tot) * 100) : 0 };
+  }
+
+  function paintBadge(det) {
+    const st = cs(det.dataset.ch), b = det.querySelector('[data-badge]');
+    if (!st.unlocked) { b.className = 'badge locked'; b.textContent = 'Locked'; }
+    else if (st.checked) { const s = scoreOf(det); b.className = 'badge scored'; b.textContent = s.tot ? `${s.pct}% · ${s.got}/${s.tot}` : 'Done'; }
+    else { b.className = 'badge open'; b.textContent = 'Unlocked'; }
+  }
+
+  function grade(det) {
+    const st = cs(det.dataset.ch);
+    det.querySelectorAll('.q[data-type="mcq"]').forEach((q) => {
+      const ans = Number(q.dataset.answer), i = q.dataset.q;
+      q.querySelectorAll('.opt').forEach((opt) => {
+        const j = Number(opt.dataset.opt), mk = opt.querySelector('.mk');
+        opt.classList.remove('correct', 'wrong'); mk.textContent = '';
+        if (j === ans) { opt.classList.add('correct'); mk.textContent = '✓ correct'; }
+        else if (st.answers[i] === j) { opt.classList.add('wrong'); mk.textContent = '✗'; }
+      });
+      q.querySelector('.expl').classList.add('show');
+    });
+    const s = scoreOf(det), el = det.querySelector('[data-score]');
+    if (el) el.innerHTML = s.tot ? `<span class="pct">${s.pct}%</span>&nbsp; ${s.got} of ${s.tot} correct` : 'Self-assessed';
+    paintBadge(det); updateProgress();
+  }
+
+  function setUnlocked(det, on) { det.classList.toggle('unlocked', on); }
+
+  chapters.forEach((det) => {
+    const ch = det.dataset.ch, st = cs(ch);
+    setUnlocked(det, !!st.unlocked);
+    paintBadge(det);
+
+    det.querySelector('[data-unlock]').onclick = () => { st.unlocked = true; save(); setUnlocked(det, true); paintBadge(det); };
+
+    det.querySelectorAll('.q[data-type="mcq"]').forEach((q) => {
+      const i = q.dataset.q;
+      q.querySelectorAll('input[type=radio]').forEach((inp) => {
+        inp.checked = st.answers[i] === Number(inp.value);
+        inp.onchange = () => { st.answers[i] = Number(inp.value); save(); };
+      });
+    });
+    det.querySelectorAll('.q[data-type="short"]').forEach((q) => {
+      const i = q.dataset.q, ta = q.querySelector('textarea');
+      ta.value = st.answers[i] || '';
+      ta.oninput = () => { st.answers[i] = ta.value; save(); };
+      const mt = q.querySelector('.model-text');
+      q.querySelector('[data-model]').onclick = () => { mt.classList.toggle('show'); st.reveal[i] = mt.classList.contains('show'); save(); };
+      if (st.reveal[i]) mt.classList.add('show');
+    });
+
+    det.querySelector('[data-check]').onclick = () => { st.checked = true; save(); grade(det); };
+    det.querySelector('[data-rechapter]').onclick = () => {
+      state[ch] = { unlocked: true, answers: {}, checked: false, reveal: {} }; save();
+      det.querySelectorAll('input[type=radio]').forEach((r) => (r.checked = false));
+      det.querySelectorAll('textarea').forEach((t) => (t.value = ''));
+      det.querySelectorAll('.opt').forEach((o) => { o.classList.remove('correct', 'wrong'); o.querySelector('.mk').textContent = ''; });
+      det.querySelectorAll('.expl').forEach((e) => e.classList.remove('show'));
+      det.querySelector('[data-score]').textContent = '';
+      paintBadge(det); updateProgress();
+    };
+
+    if (st.checked) grade(det);
+  });
+
+  function updateProgress() {
+    let done = 0; chapters.forEach((d) => { if (cs(d.dataset.ch).checked) done++; });
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    const f = document.getElementById('pfill'), c = document.getElementById('pcount');
+    if (f) f.style.width = pct + '%';
+    if (c) c.textContent = `${done} / ${total}`;
+  }
+
+  const reset = document.getElementById('resetAll');
+  if (reset) reset.onclick = () => {
+    if (confirm('Reset all chapters, answers, and scores on this device?')) { localStorage.removeItem(KEY); location.reload(); }
+  };
+  updateProgress();
+</script>
+
+<style>
+  .qdivider{display:flex; align-items:center; gap:16px; margin:46px 0 6px; color:var(--rust)}
+  .qdivider::before,.qdivider::after{content:""; height:1px; flex:1; background:var(--line)}
+  .qdivider span{font-family:var(--display); font-weight:600; text-transform:uppercase; letter-spacing:.22em; font-size:13px}
+
+  .pending{text-align:center; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:34px 22px; margin:18px 0; box-shadow:var(--shadow)}
+  .pending .lk{font-size:26px; color:var(--gold)}
+  .pending h3{font-family:var(--display); font-weight:600; margin:8px 0 6px; font-size:20px}
+  .pending p{color:var(--ink-soft); max-width:48ch; margin:0 auto; font-size:15px}
+
+  .part{margin:38px 0 6px; display:flex; align-items:baseline; gap:14px}
+  .pn{font-family:var(--display); font-weight:600; font-size:13px; letter-spacing:.32em; text-transform:uppercase; color:var(--rust)}
+  .pl{flex:1; height:1px; background:var(--line)}
+
+  .ch{background:var(--card); border:1px solid var(--line); border-radius:14px; margin:14px 0; box-shadow:var(--shadow); overflow:hidden}
+  .ch summary{list-style:none; cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px 18px}
+  .ch summary::-webkit-details-marker{display:none}
+  .chno{font-family:var(--display); font-weight:600; font-size:26px; line-height:1; color:var(--olive-deep); min-width:46px; font-variant-numeric:tabular-nums}
+  .chmeta{flex:1; min-width:0}
+  .chttl{font-family:var(--display); font-weight:600; font-size:17px; display:block}
+  .chsub{font-size:12.5px; color:var(--ink-faint); margin-top:2px; display:block}
+  .badge{font-size:11.5px; font-weight:600; padding:5px 11px; border-radius:20px; white-space:nowrap}
+  .badge.locked{background:#e7dbbe; color:var(--ink-faint)}
+  .badge.open{background:#e3e8d4; color:var(--olive-deep)}
+  .badge.scored{background:var(--olive-deep); color:#f3ead7}
+  .chev{color:var(--ink-faint); transition:transform .25s; font-size:13px}
+  .ch[open] .chev{transform:rotate(90deg)}
+  .chbody{padding:0 18px 20px; border-top:1px solid var(--line)}
+
+  .gate{text-align:center; padding:30px 16px 24px}
+  .gate .lk{font-size:30px}
+  .gate h3{font-family:var(--display); font-weight:600; margin:8px 0 4px; font-size:19px}
+  .gate p{margin:0 auto 18px; max-width:42ch; color:var(--ink-soft); font-size:14.5px}
+
+  .quiz{display:none}
+  .ch.unlocked .quiz{display:block}
+  .ch.unlocked .gate{display:none}
+
+  .summary{margin:18px 0 6px; padding:14px 16px; background:#efe6cf; border-left:3px solid var(--gold); border-radius:0 10px 10px 0; font-style:italic; color:var(--ink-soft); font-size:14.5px}
+  .summary b{font-style:normal; font-family:var(--display); color:var(--ink); display:block; margin-bottom:3px; font-size:12px; letter-spacing:.12em; text-transform:uppercase}
+
+  .q{padding:20px 0; border-top:1px dashed var(--line)}
+  .q:first-of-type{border-top:none}
+  .qhead{display:flex; gap:10px; align-items:flex-start}
+  .qn{font-family:var(--display); font-weight:600; color:var(--rust); font-size:15px; min-width:30px}
+  .qtext{font-size:16px; font-weight:500}
+  .tags{display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 0 30px}
+  .tag{font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); border:1px solid var(--line); border-radius:6px; padding:2px 7px}
+  .tag.mcq{color:var(--olive-deep); border-color:#c4cba8; background:#eef1e3}
+  .tag.short{color:var(--rust); border-color:#e0bfae; background:#f6e7df}
+
+  .opts{margin:14px 0 0 30px; display:flex; flex-direction:column; gap:9px}
+  .opt{display:flex; gap:11px; align-items:flex-start; padding:12px 14px; border:1px solid var(--line); border-radius:11px; background:#fffaef; cursor:pointer; transition:border-color .15s, background .15s; font-size:15px}
+  .opt:hover{border-color:var(--olive)}
+  .opt input{margin:3px 0 0; accent-color:var(--olive); width:17px; height:17px; flex:none}
+  .opt .lt{font-family:var(--display); font-weight:600; color:var(--ink-faint); margin-right:2px}
+  .opt.correct{background:#e7efd6; border-color:var(--olive)}
+  .opt.wrong{background:#f6e2da; border-color:var(--rust-soft)}
+  .opt.correct .lt{color:var(--olive-deep)} .opt.wrong .lt{color:var(--rust)}
+  .opt .mk{margin-left:auto; font-weight:700; flex:none}
+  .opt.correct .mk{color:var(--olive-deep)} .opt.wrong .mk{color:var(--rust)}
+
+  textarea{width:100%; margin:12px 0 0; font-family:var(--serif); font-size:15.5px; color:var(--ink); background:#fffaef; border:1px solid var(--line); border-radius:11px; padding:12px 14px; min-height:96px; resize:vertical}
+  textarea:focus{outline:2px solid var(--olive); border-color:var(--olive)}
+
+  .expl{margin:12px 0 0 30px; padding:12px 15px; border-radius:10px; background:#efe6cf; font-size:14px; color:var(--ink-soft); border-left:3px solid var(--olive); display:none}
+  .expl.show{display:block; animation:fade .4s ease}
+  .expl b{font-family:var(--display); color:var(--olive-deep)}
+  .model{margin-top:10px}
+  .model .mlabel{font-family:var(--display); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.1em; color:var(--rust)}
+  @keyframes fade{from{opacity:0; transform:translateY(-4px)}to{opacity:1}}
+
+  .chfoot{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:22px}
+  .score{font-family:var(--display); font-weight:600; font-size:15px; margin-right:auto}
+  .score :global(.pct){font-size:21px; color:var(--olive-deep)}
+
+  @media(max-width:520px){
+    .chno{font-size:22px; min-width:38px}
+    .ch summary{padding:14px 14px; gap:10px}
+    .opts,.tags,.expl{margin-left:0}
+  }
+</style>

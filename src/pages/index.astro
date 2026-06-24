@@ -1,0 +1,76 @@
+---
+import Base from '../layouts/Base.astro';
+import BookCard from '../components/BookCard.astro';
+import { books } from '../lib/books.js';
+const spineCount = Math.max(0, 5 - books.length);
+---
+<Base title="Book Study — read closely, remember more" theme="#3a2b1c">
+  <div class="wrap wide">
+    <header class="hero">
+      <p class="kicker">A Reading Companion</p>
+      <h1>Book <em>Study</em></h1>
+      <p class="sub">Read a great book closely, then earn each chapter's questions. Built to make what you read actually stay.</p>
+    </header>
+
+    <section class="case" aria-label="Bookshelf">
+      <div class="shelf">
+        <div class="books">
+          {books.map((b, i) => <BookCard book={b} featured={i === 0} />)}
+          {Array.from({ length: spineCount }).map((_, i) => (
+            <div class={`spine s${(i % 4) + 1}`}><span class="soon">soon</span><span>More to come</span></div>
+          ))}
+        </div>
+        <div class="plank"></div>
+      </div>
+    </section>
+
+    <p class="note">{books.length === 1 ? 'One book on the shelf so far. More study companions will line up beside it.' : `${books.length} books on the shelf — more to come.`}</p>
+
+    <footer>
+      <span class="ts">Timshel — thou mayest.</span>
+      Your reading progress is saved privately on your own device.
+    </footer>
+  </div>
+</Base>
+
+<style>
+  .hero{text-align:center; padding:64px 0 30px;}
+  h1{font-family:var(--display); font-weight:600; font-optical-sizing:auto; font-size:clamp(46px,11vw,92px);
+     line-height:.92; margin:0; letter-spacing:-.015em;}
+  h1 em{font-style:italic; color:var(--olive);}
+  .sub{font-style:italic; color:var(--ink-soft); font-size:clamp(16px,4vw,20px); margin:18px auto 0; max-width:34ch;}
+
+  .case{margin:46px auto 0; max-width:860px;
+    background:repeating-linear-gradient(90deg,#6e451f 0 7px,#754b24 7px 9px),linear-gradient(180deg,var(--wood-1),var(--wood-2));
+    border-radius:16px; padding:18px 22px 0;
+    box-shadow:0 40px 80px -40px #2b1a0e,0 2px 0 #a9743f inset,0 -2px 0 #2c1a0c inset; border:1px solid #2c1a0c;}
+  .shelf{position:relative; padding:34px 14px 0;}
+  .books{display:flex; align-items:flex-end; gap:26px; flex-wrap:wrap; min-height:240px; padding-bottom:18px;}
+  .plank{height:26px; margin:0 -8px; background:linear-gradient(180deg,var(--wood-edge),var(--wood-2) 40%,var(--wood-3));
+    border-radius:3px; box-shadow:0 14px 22px -10px #1c10079e,0 2px 0 #a9743f inset; position:relative; z-index:3;}
+  .plank::after{content:""; position:absolute; left:0; right:0; top:-14px; height:14px;
+    background:linear-gradient(180deg,transparent,#1c100755); pointer-events:none;}
+
+  .spine{width:46px; height:230px; border-radius:3px 3px 2px 2px; position:relative; z-index:2;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:14px 22px 30px -18px #2b1a0e,-4px 0 8px -4px #0006 inset; filter:saturate(.8) brightness(.97);}
+  .spine span{writing-mode:vertical-rl; transform:rotate(180deg); font-family:var(--display); font-weight:600;
+    font-size:13px; letter-spacing:.04em; color:#f3ead7cc; text-shadow:0 1px 2px #0007; white-space:nowrap;}
+  .spine.s1{background:linear-gradient(90deg,#3f4c2f,#55683f);}
+  .spine.s2{background:linear-gradient(90deg,#6e3a23,#8a4a2c);}
+  .spine.s3{background:linear-gradient(90deg,#394a57,#4a6173);}
+  .spine.s4{background:linear-gradient(90deg,#6a5326,#8a6f33);}
+  .soon{position:absolute; top:8px; left:50%; transform:translateX(-50%); font-size:8.5px; letter-spacing:.12em;
+    text-transform:uppercase; color:#f3ead799; writing-mode:initial; transform:translateX(-50%);}
+
+  .note{text-align:center; color:var(--ink-faint); font-style:italic; font-size:14px; margin:34px auto 0; max-width:46ch;}
+  footer{text-align:center; margin-top:54px; color:var(--ink-faint); font-size:13px;}
+  footer .ts{font-family:var(--display); font-style:italic; font-size:18px; color:var(--ink-soft); display:block; margin-bottom:6px;}
+
+  @media(max-width:560px){
+    .books{gap:18px; justify-content:center; min-height:0}
+    .spine{height:188px; width:40px}
+    .case{padding:14px 12px 0}
+    .shelf{padding:26px 4px 0}
+  }
+</style>
