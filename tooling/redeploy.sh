@@ -15,6 +15,15 @@ source ~/repo/skills/coolify-deploy/.env.coolify
 BASE="${COOLIFY_API_URL%/}/api/v1"
 
 cd "$ROOT"
+
+# Gate: every book's data must be well-formed (catches dropped/duplicated questions
+# and malformed MCQs). --partial allows in-progress books that aren't complete yet.
+for cfg in tooling/books/*.json; do
+  slug="$(basename "$cfg" .json)"
+  [ -f "src/data/books/$slug.json" ] || continue
+  python3 tooling/validate.py "$slug" --partial || { echo "ABORT: $slug failed validation"; exit 1; }
+done
+
 npm run build >/tmp/astro-build.log 2>&1 && echo "build OK" || { echo "BUILD FAILED"; tail -20 /tmp/astro-build.log; exit 1; }
 
 git add -A

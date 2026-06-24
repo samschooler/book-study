@@ -22,7 +22,13 @@ def main():
     out = os.path.join(ROOT, "tooling", "work", slug, "site-data")
     os.makedirs(out, exist_ok=True)
 
-    counts, last = {}, {}
+    # Collect every result per chapter in journal order. The generate result lands
+    # first and the verify result later, BUT a verify agent can "succeed" while
+    # returning an error object with an empty questions array (e.g. it failed to read
+    # the chapter file). So we can't blindly take the last result — we take the last
+    # result that actually HAS questions, falling back to the draft when verify came
+    # back empty, and report those so they can be re-verified.
+    per = {}  # ch -> list of results in order
     spec = None
     for line in open(journal):
         line = line.strip()
@@ -37,15 +43,21 @@ def main():
         ch = r.get("chapter")
         if ch is None or "questions" not in r:
             continue
-        counts[ch] = counts.get(ch, 0) + 1
-        last[ch] = r
+        per.setdefault(ch, []).append(r)
 
-    written, unverified = 0, []
-    for ch, r in sorted(last.items()):
-        json.dump(r, open(os.path.join(out, f"ch{ch:02d}.json"), "w"), ensure_ascii=False, indent=1)
+    written, unverified, draft_fallback, empty = 0, [], [], []
+    for ch, results in sorted(per.items()):
+        good = [r for r in results if r.get("questions")]
+        if not good:
+            empty.append(ch)            # no usable result at all -> regenerate
+            continue
+        chosen = good[-1]               # last result that actually has questions
+        json.dump(chosen, open(os.path.join(out, f"ch{ch:02d}.json"), "w"), ensure_ascii=False, indent=1)
         written += 1
-        if counts[ch] < 2:
-            unverified.append(ch)
+        if len(results) < 2:
+            unverified.append(ch)       # only ever got one result (no verify ran)
+        elif chosen is not results[-1]:
+            draft_fallback.append(ch)    # verify result was empty/errored -> using the draft
 
     if spec:
         json.dump(spec, open(os.path.join(ROOT, "tooling", "work", slug, "spec.json"), "w"), ensure_ascii=False, indent=1)
@@ -54,7 +66,9 @@ def main():
     hi = max(present) if present else 0
     missing = [c for c in range(1, hi + 1) if c not in present]
     print(f"wrote {written} chapters from journal -> {out}")
-    print(f"unverified (draft only): {unverified}")
+    print(f"unverified (only one result, no verify ran): {unverified}")
+    print(f"draft-fallback (verify came back empty -> using draft, re-verify these): {draft_fallback}")
+    print(f"empty (no usable result -> regenerate): {empty}")
     print(f"available: {len(present)} chapters; gaps below ch{hi}: {missing}")
 
 
