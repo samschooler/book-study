@@ -275,6 +275,20 @@ const quizData = JSON.stringify({ chapters: book.chapters, parts: book.parts }).
   const resetBtn = document.getElementById('resetAll');
   if (resetBtn) resetBtn.onclick = () => { if (confirm('Reset all reading-guide and quiz progress on this device?')) { localStorage.removeItem(qKey); localStorage.removeItem(gKey); location.reload(); } };
 
+  // On return, open straight to the next-up step instead of the title page. The title
+  // page is only for a genuinely fresh first visit (no saved progress yet).
+  function initialView() {
+    const fresh = !localStorage.getItem(gKey) && !localStorage.getItem(qKey);
+    if (fresh) return { t: 'title' };
+    const nu = nextUnread();
+    if (nu >= 0) return { t: 'g', i: nu };
+    const q = read(qKey);
+    const nc = chapterNums.find((n) => !(q[n] && q[n].checked));
+    if (nc != null) return { t: 'c', n: nc };
+    return { t: 'title' }; // everything complete
+  }
+
+  view = initialView();
   progress();
   render();
 </script>
